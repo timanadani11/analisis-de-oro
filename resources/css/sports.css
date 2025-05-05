@@ -1,0 +1,524 @@
+/* Estilos deportivos para Análisis de Oro */
+
+/* Animaciones generales */
+@keyframes pulse-laravel {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); box-shadow: 0 0 15px rgba(255, 45, 32, 0.7); }
+  100% { transform: scale(1); }
+}
+
+@keyframes slide-in-bottom {
+  0% { transform: translateY(30px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes bounce-in {
+  0% { transform: scale(0.8); opacity: 0; }
+  70% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes shine {
+  0% { background-position: -100px; }
+  100% { background-position: 200px; }
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+  100% { transform: translateY(0px); }
+}
+
+@keyframes bounce-ball {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-8px) rotate(5deg); }
+  50% { transform: translateY(0) rotate(0deg); }
+  75% { transform: translateY(-4px) rotate(-5deg); }
+}
+
+/* Clases de animación */
+.animate-pulse-laravel {
+  animation: pulse-laravel 2s infinite;
+}
+
+.animate-slide-in {
+  animation: slide-in-bottom 0.6s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.animate-bounce-in {
+  animation: bounce-in 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.animate-shine {
+  animation: shine 2s infinite linear;
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-bounce-ball {
+  animation: bounce-ball 3s ease-in-out infinite;
+}
+
+/* Utilidades de diseño */
+.bg-laravel-pattern {
+  background-image: radial-gradient(rgba(255, 45, 32, 0.15) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.glow-laravel {
+  filter: drop-shadow(0 0 8px rgba(255, 45, 32, 0.6));
+}
+
+.text-shadow-laravel {
+  text-shadow: 0 2px 10px rgba(255, 45, 32, 0.3);
+}
+
+/* Elementos de la interfaz */
+.header-laravel {
+  background: linear-gradient(to right, #111827, #1F2937);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(31, 41, 55, 0.8);
+}
+
+.footer-laravel {
+  background: linear-gradient(160deg, #111827, #1F2937);
+  border-top: 1px solid rgba(31, 41, 55, 0.8);
+}
+
+/* Campo de fútbol estilizado */
+.soccer-field {
+  background-color: rgba(31, 41, 55, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.soccer-field::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.soccer-field::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.soccer-ball {
+  position: relative;
+  width: 1rem;
+  height: 1rem;
+  background-color: white;
+  border-radius: 50%;
+  animation: bounce-ball 3s ease-in-out infinite;
+}
+
+.soccer-ball::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 50%;
+  clip-path: polygon(0 0, 50% 0, 100% 50%, 50% 100%, 0 100%, 50% 50%);
+}
+
+.soccer-player {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  animation: pulse-laravel 2s infinite;
+}
+
+.soccer-player.team-1 {
+  background-color: #FF2D20;
+}
+
+.soccer-player.team-2 {
+  background-color: #6366F1;
+}
+
+/* Estadísticas del juego */
+.game-stat {
+  background-color: rgba(17, 24, 39, 0.7);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  color: white;
+  display: flex;
+  align-items: center;
+}
+
+.game-stat svg {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.25rem;
+}
+
+/* Estilos de componentes */
+.btn-laravel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 1.5rem;
+  font-weight: 600;
+  border-radius: 0.375rem;
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}
+
+.btn-laravel-primary {
+  background-color: #FF2D20;
+  color: white;
+  box-shadow: 0 4px 6px -1px rgba(255, 45, 32, 0.3), 0 2px 4px -1px rgba(255, 45, 32, 0.2);
+}
+
+.btn-laravel-primary:hover {
+  background-color: #CC2419;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(255, 45, 32, 0.3), 0 4px 6px -2px rgba(255, 45, 32, 0.2);
+}
+
+.btn-laravel-secondary {
+  background-color: #1F2937;
+  color: white;
+  border: 1px solid rgba(255, 45, 32, 0.2);
+}
+
+.btn-laravel-secondary:hover {
+  background-color: #111827;
+  border-color: rgba(255, 45, 32, 0.4);
+}
+
+.card-laravel {
+  background-color: #1F2937;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid rgba(31, 41, 55, 0.7);
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 300ms;
+}
+
+.card-laravel:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 45, 32, 0.3);
+}
+
+/* Aspecto ratio para elementos responsivos */
+.aspect-w-16 {
+  position: relative;
+  padding-bottom: calc(var(--tw-aspect-h) / var(--tw-aspect-w) * 100%);
+  --tw-aspect-w: 16;
+}
+
+.aspect-h-9 {
+  --tw-aspect-h: 9;
+}
+
+.aspect-w-16 > * {
+  position: absolute;
+  height: 100%;
+  width: 100%;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+}
+
+/* Estilos para el contador de estadísticas */
+.counter {
+  display: inline-block;
+  transition: all 0.5s ease-in-out;
+}
+
+/* Gradientes y efectos visuales */
+.bg-gradient-laravel {
+  background: linear-gradient(135deg, #FF2D20 0%, #FF5C52 100%);
+}
+
+.bg-gradient-laravel-dark {
+  background: linear-gradient(135deg, #111827 0%, #1F2937 100%);
+}
+
+/* Estilos para las tarjetas de características */
+.feature-icon {
+  position: relative;
+  z-index: 10;
+}
+
+.feature-icon::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  right: -5px;
+  bottom: -5px;
+  background: rgba(255, 45, 32, 0.2);
+  border-radius: 0.5rem;
+  filter: blur(8px);
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease-in-out;
+}
+
+.feature-card:hover .feature-icon::before {
+  opacity: 1;
+}
+
+/* Estilos deportivos para Análisis de Oro */
+
+/* Animaciones generales */
+@keyframes pulse-sport {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); box-shadow: 0 0 15px rgba(14, 165, 233, 0.7); }
+  100% { transform: scale(1); }
+}
+
+@keyframes slide-in-bottom {
+  0% { transform: translateY(30px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes bounce-in {
+  0% { transform: scale(0.8); opacity: 0; }
+  70% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes shine {
+  0% { background-position: -100px; }
+  100% { background-position: 200px; }
+}
+
+/* Clases de animación */
+.animate-pulse-sport {
+  animation: pulse-sport 2s infinite;
+}
+
+.animate-slide-in {
+  animation: slide-in-bottom 0.6s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.animate-bounce-in {
+  animation: bounce-in 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.animate-shine {
+  background: linear-gradient(to right, rgba(255,255,255,0) 0%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0) 100%);
+  background-size: 200px 100%;
+  animation: shine 2s infinite linear;
+}
+
+.animate-on-scroll {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.animate-on-scroll.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Gradientes deportivos */
+.bg-sport-gradient {
+  background: linear-gradient(120deg, #0ea5e9 0%, #10b981 100%);
+}
+
+.bg-sport-gradient-dark {
+  background: linear-gradient(120deg, #0c4a6e 0%, #065f46 100%);
+}
+
+.bg-overlay-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Efectos de tarjetas */
+.sport-card {
+  @apply bg-white dark:bg-primary-dark rounded-lg overflow-hidden shadow-md transition-all duration-300;
+}
+
+.sport-card:hover {
+  @apply shadow-xl transform -translate-y-1;
+}
+
+.sport-card-highlight {
+  @apply relative overflow-hidden;
+}
+
+.sport-card-highlight::before {
+  content: '';
+  @apply absolute top-0 left-0 w-full h-1 bg-sport-blue;
+}
+
+/* Botones deportivos */
+.btn-sport {
+  @apply inline-flex items-center justify-center px-5 py-2 font-sport font-semibold rounded-md transition-all duration-300;
+}
+
+.btn-sport-primary {
+  @apply bg-primary text-white hover:bg-primary-dark;
+}
+
+.btn-sport-secondary {
+  @apply bg-secondary text-white hover:bg-secondary-dark;
+}
+
+.btn-sport-accent {
+  @apply bg-accent text-white hover:bg-accent-dark;
+}
+
+.btn-sport-outline {
+  @apply border-2 border-primary text-primary hover:bg-primary hover:text-white;
+}
+
+/* Secciones y divisores */
+.sport-section {
+  @apply py-16 relative overflow-hidden;
+}
+
+.sport-divider {
+  @apply my-10 h-1 rounded-full bg-gradient-to-r from-primary via-secondary to-accent;
+}
+
+/* Estilos de navegación */
+.nav-sport {
+  @apply bg-white dark:bg-primary-dark shadow-md;
+}
+
+.nav-sport-link {
+  @apply text-gray-800 dark:text-white hover:text-primary dark:hover:text-secondary font-sport transition-colors duration-300;
+}
+
+.nav-sport-link.active {
+  @apply text-primary dark:text-secondary font-medium;
+}
+
+/* Tablas deportivas */
+.table-sport {
+  @apply w-full border-collapse;
+}
+
+.table-sport th {
+  @apply bg-gray-100 dark:bg-gray-800 p-3 text-left font-sport-display text-sm uppercase text-gray-600 dark:text-gray-300;
+}
+
+.table-sport td {
+  @apply p-3 border-b border-gray-200 dark:border-gray-700;
+}
+
+.table-sport tr:hover {
+  @apply bg-gray-50 dark:bg-gray-900;
+}
+
+/* Footer personalizado */
+.footer-sport {
+  @apply bg-primary-dark text-white pt-16;
+  position: relative;
+}
+
+.footer-sport::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  opacity: 0.1;
+}
+
+.footer-sport-logo {
+  @apply text-2xl font-sport-display font-bold;
+}
+
+.footer-sport-logo span {
+  @apply text-sport-red;
+}
+
+.footer-sport-social a {
+  @apply text-white hover:text-sport-blue transition-colors duration-300 mr-4;
+}
+
+.footer-sport-content {
+  @apply container mx-auto px-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-10;
+}
+
+.footer-sport-column {
+  @apply mb-8 md:mb-0;
+}
+
+.footer-sport-column h3 {
+  @apply text-xl font-sport-display mb-4;
+}
+
+.footer-sport-column ul li {
+  @apply mb-2;
+}
+
+.footer-sport-column ul li a {
+  @apply text-gray-200 hover:text-white hover:underline transition-colors duration-300;
+}
+
+/* Estilos de texto y tipografía */
+.text-outlined {
+  -webkit-text-stroke: 1px currentColor;
+  color: transparent;
+}
+
+.heading-sport {
+  @apply font-sport-display font-bold leading-tight;
+}
+
+.heading-sport-xl {
+  @apply text-4xl md:text-5xl lg:text-6xl;
+}
+
+.heading-sport-lg {
+  @apply text-3xl md:text-4xl;
+}
+
+.heading-sport-md {
+  @apply text-2xl md:text-3xl;
+}
+
+.heading-accent {
+  @apply relative inline-block;
+}
+
+.heading-accent::after {
+  content: '';
+  @apply absolute bottom-0 left-0 w-1/3 h-1 bg-accent rounded-full;
+}
+
+/* Responsivo */
+@media (max-width: 768px) {
+  .heading-sport-xl {
+    @apply text-3xl;
+  }
+  
+  .heading-sport-lg {
+    @apply text-2xl;
+  }
+  
+  .heading-sport-md {
+    @apply text-xl;
+  }
+} 

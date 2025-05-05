@@ -1,0 +1,27 @@
+# Configuración de correo recomendada para tu archivo .env
+# Reemplaza estas líneas en tu archivo .env actual
+
+# Opción 1: Usando Mailtrap (para pruebas)
+MAIL_MAILER=smtp
+MAIL_HOST=smtp.mailtrap.io
+MAIL_PORT=2525
+MAIL_USERNAME=tu_username_de_mailtrap  # Necesitas registrarte en mailtrap.io para obtener estas credenciales
+MAIL_PASSWORD=tu_password_de_mailtrap  # Necesitas registrarte en mailtrap.io para obtener estas credenciales
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=sportmind@example.com
+MAIL_FROM_NAME="Sport Mind"
+
+# Opción 2: Usando Gmail (para producción)
+# MAIL_MAILER=smtp
+# MAIL_HOST=smtp.gmail.com
+# MAIL_PORT=587
+# MAIL_USERNAME=tu_correo@gmail.com  # Tu dirección de Gmail
+# MAIL_PASSWORD=tu_contraseña_de_aplicación  # Contraseña de aplicación de Google (no tu contraseña normal)
+# MAIL_ENCRYPTION=tls
+# MAIL_FROM_ADDRESS=tu_correo@gmail.com
+# MAIL_FROM_NAME="Sport Mind"
+
+# Para usar Gmail, necesitas:
+# 1. Tener habilitada la verificación en dos pasos en tu cuenta de Google
+# 2. Crear una "Contraseña de aplicación" específica para esta aplicación
+# 3. Usar esa contraseña de aplicación en lugar de tu contraseña normal de Gmail 

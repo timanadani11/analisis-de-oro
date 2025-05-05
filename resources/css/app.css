@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #FF2D20;
+  --primary-dark: #CC2419;
+}
+
+@layer base {
+  body {
+    @apply bg-black text-white;
+  }
+  
+  /* Ensure links are clickable */
+  a, button, [role="button"], .cursor-pointer {
+    position: relative;
+    z-index: 20; /* Higher z-index for interactive elements */
+  }
+  
+  /* Debugging helpers */
+  .debug-click {
+    outline: 2px solid red;
+  }
+  
+  /* Diagnostic mode styling */
+  .diagnostic-mode * {
+    transition: outline 0.2s ease-in-out;
+  }
+  
+  .diagnostic-mode a:hover, 
+  .diagnostic-mode button:hover, 
+  .diagnostic-mode [role="button"]:hover {
+    outline: 4px solid yellow !important;
+    outline-offset: 2px;
+  }
+  
+  /* Fix for potential overlay issues */
+  .fixed, .absolute {
+    pointer-events: auto; /* Ensure these are set to auto unless explicitly disabled */
+  }
+  
+  /* Extra safety to ensure main content is always clickable */
+  main {
+    position: relative;
+    z-index: 20;
+  }
+}
+
+@layer components {
+  .navbar-link {
+    @apply px-3 py-2 text-gray-400 hover:text-white rounded-md text-sm font-medium transition-all;
+  }
+  
+  .navbar-link.active {
+    @apply text-[#FF2D20];
+  }
+  
+  .laravel-card {
+    @apply rounded-lg bg-zinc-900 shadow-lg border border-zinc-800 transition-all hover:border-[#FF2D20]/50;
+  }
+  
+  .btn-primary {
+    @apply bg-[#FF2D20] text-white px-4 py-2 rounded-md font-medium shadow-lg hover:bg-[#CC2419] transition-all;
+  }
+  
+  .btn-secondary {
+    @apply bg-zinc-800 text-white px-4 py-2 rounded-md font-medium border border-zinc-700 hover:bg-zinc-700 transition-all;
+  }
+}
