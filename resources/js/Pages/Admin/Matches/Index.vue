@@ -22,6 +22,11 @@ const analisis = ref('');
 const loadingAnalisis = ref(false);
 const partidoSeleccionado = ref(null);
 
+// Nuevas variables para estadísticas de equipos
+const showStatsModal = ref(false);
+const equiposStats = ref(null);
+const loadingStats = ref(false);
+
 // Lista de estados posibles para filtro
 const statusOptions = [
     { value: '', label: 'Todos los estados' },
@@ -134,22 +139,91 @@ function getElapsedTimeClass(status) {
     return 'text-gray-400';
 }
 
+// Función simple para formatear el texto con saltos de línea
+function formatText(text) {
+    if (!text) return '';
+    
+    // Reemplazar saltos de línea con <br>
+    return text.replace(/\n/g, '<br>');
+}
+
 async function analizarPartido(match) {
     showModal.value = true;
     loadingAnalisis.value = true;
-    analisis.value = '';
+    analisis.value = 'Recopilando información de los equipos y generando análisis detallado...';
     partidoSeleccionado.value = match;
     try {
+        // Preparar los datos necesarios para el análisis completo
         const response = await axios.post('/analizar-partido', {
-            local: match.home_team_name,
-            visitante: match.away_team_name,
-            fecha: match.match_date
+            match_data: {
+                homeTeam: {
+                    team: {
+                        id: match.home_team_id,
+                        name: match.home_team_name,
+                        logo: match.home_team_logo
+                    },
+                    league: {
+                        name: match.league_name,
+                        country: match.league_country,
+                        season: new Date().getFullYear()
+                    }
+                },
+                awayTeam: {
+                    team: {
+                        id: match.away_team_id,
+                        name: match.away_team_name,
+                        logo: match.away_team_logo
+                    },
+                    league: {
+                        name: match.league_name,
+                        country: match.league_country,
+                        season: new Date().getFullYear()
+                    }
+                },
+                // El controlador buscará los enfrentamientos directos y otras estadísticas
+                // a partir de los IDs de los equipos y la liga
+                match: {
+                    date: match.match_date,
+                    venue: match.venue || 'Desconocido',
+                    status: match.status
+                }
+            }
         });
-        analisis.value = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No se pudo obtener el análisis.';
+        
+        if (response.data && response.data.success) {
+            analisis.value = response.data.analysis || 'Análisis completado con éxito.';
+        } else {
+            analisis.value = 'No se pudo obtener el análisis: ' + (response.data?.message || 'Error desconocido');
+        }
     } catch (e) {
-        analisis.value = 'Error al analizar el partido.';
+        console.error('Error al analizar el partido:', e);
+        analisis.value = 'Error al analizar el partido: ' + (e.response?.data?.message || e.message || 'Error desconocido');
     } finally {
         loadingAnalisis.value = false;
+    }
+}
+
+// Función para obtener estadísticas de los equipos
+async function obtenerEstadisticas(match) {
+    showStatsModal.value = true;
+    loadingStats.value = true;
+    equiposStats.value = null;
+    partidoSeleccionado.value = match;
+    try {
+        const response = await axios.post('/estadisticas-equipos', {
+            home_team: match.home_team_name,
+            away_team: match.away_team_name
+        });
+        
+        if (response.data.success && response.data.data) {
+            equiposStats.value = response.data.data;
+        } else {
+            equiposStats.value = { error: response.data.message || 'No se pudieron obtener las estadísticas.' };
+        }
+    } catch (e) {
+        equiposStats.value = { error: 'Error al obtener las estadísticas de los equipos.' };
+    } finally {
+        loadingStats.value = false;
     }
 }
 </script>
@@ -188,15 +262,11 @@ async function analizarPartido(match) {
                                 class="w-full px-4 py-2 bg-black/50 border border-zinc-800 rounded-lg text-white placeholder-gray-500 focus:border-red-500 focus:outline-none"
                             />
                         </div>
-                        <div class="col-span-1">
-                            <select 
-                                v-model="selectedLeague" 
-                                class="w-full px-4 py-2 bg-black/50 border border-zinc-800 rounded-lg text-white focus:border-red-500 focus:outline-none"
-                            >
-                                <option v-for="option in leagueOptions" :key="option.value" :value="option.value">
-                                    {{ option.label }}
-                                </option>
-                            </select>
+                        <div class="col-span-2">
+                            <!-- Contador de partidos -->
+                            <div class="flex items-center h-full">
+                                <span class="text-gray-400">{{ filteredMatches.length }} partidos</span>
+                            </div>
                         </div>
                         <div class="col-span-1">
                             <select 
@@ -208,8 +278,35 @@ async function analizarPartido(match) {
                                 </option>
                             </select>
                         </div>
-                        <div class="col-span-1 flex items-center justify-end">
-                            <span class="text-gray-400 mr-2">{{ filteredMatches.length }} partidos</span>
+                    </div>
+                    
+                    <!-- Selección de liga tipo botones -->
+                    <div class="mb-6">
+                        <div class="flex flex-wrap gap-2">
+                            <button 
+                                @click="selectedLeague = ''"
+                                :class="[
+                                    'px-4 py-2 text-sm rounded-lg transition-colors',
+                                    selectedLeague === '' 
+                                        ? 'bg-red-500 text-white' 
+                                        : 'bg-black/40 text-gray-300 hover:bg-zinc-800'
+                                ]"
+                            >
+                                -- Seleccionar otra liga --
+                            </button>
+                            <button 
+                                v-for="option in leagueOptions.filter(l => l.value !== '')" 
+                                :key="option.value"
+                                @click="selectedLeague = option.value"
+                                :class="[
+                                    'px-4 py-2 text-sm rounded-lg transition-colors',
+                                    selectedLeague === option.value 
+                                        ? 'bg-red-500 text-white' 
+                                        : 'bg-black/40 text-gray-300 hover:bg-zinc-800'
+                                ]"
+                            >
+                                {{ option.label }}
+                            </button>
                         </div>
                     </div>
                     
@@ -333,7 +430,7 @@ async function analizarPartido(match) {
                                     </div>
                                 </div>
                                 <div class="mt-4 flex justify-center">
-                                    <button @click="analizarPartido(match)" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded shadow transition-all duration-200">
+                                    <button @click="analizarPartido(match)" class="w-full px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded shadow transition-all duration-200">
                                         Analizar partido
                                     </button>
                                 </div>
@@ -392,10 +489,165 @@ async function analizarPartido(match) {
                 <span class="font-semibold">{{ partidoSeleccionado.away_team_name }}</span>
                 <span class="block text-xs text-gray-400">{{ formatDate(partidoSeleccionado.match_date) }}</span>
             </div>
-            <div v-if="loadingAnalisis" class="text-gray-400 flex items-center"><span class="animate-spin mr-2">⏳</span> Analizando partido...</div>
-            <div v-else class="whitespace-pre-line text-gray-200">{{ analisis }}</div>
+            <div v-if="loadingAnalisis" class="text-gray-400 flex items-center">
+                <div class="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-red-500 mr-3"></div>
+                {{ analisis }}
+            </div>
+            <div v-else class="text-gray-200 whitespace-pre-wrap" v-html="formatText(analisis)"></div>
             <div class="mt-6 text-right">
                 <button @click="showModal = false" class="px-4 py-2 bg-gray-700 hover:bg-gray-800 text-white rounded">Cerrar</button>
+            </div>
+        </div>
+    </Modal>
+    
+    <!-- Modal para estadísticas de equipos -->
+    <Modal :show="showStatsModal" @close="showStatsModal = false">
+        <div class="p-6">
+            <h2 class="text-xl font-bold mb-4 text-white">Estadísticas de equipos</h2>
+            <div v-if="partidoSeleccionado" class="mb-4 text-gray-300">
+                <span class="font-semibold">{{ partidoSeleccionado.home_team_name }}</span>
+                vs
+                <span class="font-semibold">{{ partidoSeleccionado.away_team_name }}</span>
+                <span class="block text-xs text-gray-400">{{ formatDate(partidoSeleccionado.match_date) }}</span>
+            </div>
+            
+            <!-- Cargando datos -->
+            <div v-if="loadingStats" class="text-gray-400 flex items-center">
+                <span class="animate-spin mr-2">⏳</span> Cargando estadísticas...
+            </div>
+            
+            <!-- Error -->
+            <div v-else-if="equiposStats && equiposStats.error" class="text-red-400">
+                {{ equiposStats.error }}
+            </div>
+            
+            <!-- Estadísticas -->
+            <div v-else-if="equiposStats" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Equipo Local -->
+                <div class="bg-black/30 border border-zinc-800 rounded-lg p-4">
+                    <div class="flex items-center mb-4">
+                        <img 
+                            :src="equiposStats.homeTeam.team.logo" 
+                            :alt="equiposStats.homeTeam.team.name" 
+                            class="h-12 w-12 mr-3"
+                            onerror="this.src='https://via.placeholder.com/48?text=🏠'; this.onerror=null;"
+                        />
+                        <div>
+                            <h3 class="text-lg font-bold text-white">{{ equiposStats.homeTeam.team.name }}</h3>
+                            <p class="text-xs text-gray-400">{{ equiposStats.homeTeam.league.name }}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-3">
+                        <div class="text-sm">
+                            <span class="text-gray-400">Forma:</span> 
+                            <span class="font-mono bg-black/40 px-1 text-white">{{ equiposStats.homeTeam.form || 'N/A' }}</span>
+                        </div>
+                        
+                        <div class="text-sm">
+                            <span class="text-gray-400">Partidos:</span> 
+                            <span class="text-white">{{ equiposStats.homeTeam.fixtures?.played?.total || 0 }}</span>
+                        </div>
+                        
+                        <div class="text-sm">
+                            <span class="text-gray-400">Goles marcados:</span> 
+                            <span class="text-white">{{ equiposStats.homeTeam.goals?.for?.total?.total || 0 }}</span>
+                        </div>
+                        
+                        <div class="text-sm">
+                            <span class="text-gray-400">Goles recibidos:</span> 
+                            <span class="text-white">{{ equiposStats.homeTeam.goals?.against?.total?.total || 0 }}</span>
+                        </div>
+                        
+                        <div class="text-sm" v-if="equiposStats.homeTeam.biggest">
+                            <span class="text-gray-400">Mayor victoria:</span> 
+                            <span class="text-white">{{ equiposStats.homeTeam.biggest.wins?.home || equiposStats.homeTeam.biggest.wins?.away || 'N/A' }}</span>
+                        </div>
+                        
+                        <div class="text-sm" v-if="equiposStats.homeTeam.clean_sheet">
+                            <span class="text-gray-400">Porterías a cero:</span> 
+                            <span class="text-white">{{ equiposStats.homeTeam.clean_sheet?.total || 0 }}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Equipo Visitante -->
+                <div class="bg-black/30 border border-zinc-800 rounded-lg p-4">
+                    <div class="flex items-center mb-4">
+                        <img 
+                            :src="equiposStats.awayTeam.team.logo" 
+                            :alt="equiposStats.awayTeam.team.name" 
+                            class="h-12 w-12 mr-3"
+                            onerror="this.src='https://via.placeholder.com/48?text=🏃'; this.onerror=null;"
+                        />
+                        <div>
+                            <h3 class="text-lg font-bold text-white">{{ equiposStats.awayTeam.team.name }}</h3>
+                            <p class="text-xs text-gray-400">{{ equiposStats.awayTeam.league.name }}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-3">
+                        <div class="text-sm">
+                            <span class="text-gray-400">Forma:</span> 
+                            <span class="font-mono bg-black/40 px-1 text-white">{{ equiposStats.awayTeam.form || 'N/A' }}</span>
+                        </div>
+                        
+                        <div class="text-sm">
+                            <span class="text-gray-400">Partidos:</span> 
+                            <span class="text-white">{{ equiposStats.awayTeam.fixtures?.played?.total || 0 }}</span>
+                        </div>
+                        
+                        <div class="text-sm">
+                            <span class="text-gray-400">Goles marcados:</span> 
+                            <span class="text-white">{{ equiposStats.awayTeam.goals?.for?.total?.total || 0 }}</span>
+                        </div>
+                        
+                        <div class="text-sm">
+                            <span class="text-gray-400">Goles recibidos:</span> 
+                            <span class="text-white">{{ equiposStats.awayTeam.goals?.against?.total?.total || 0 }}</span>
+                        </div>
+                        
+                        <div class="text-sm" v-if="equiposStats.awayTeam.biggest">
+                            <span class="text-gray-400">Mayor victoria:</span> 
+                            <span class="text-white">{{ equiposStats.awayTeam.biggest.wins?.away || equiposStats.awayTeam.biggest.wins?.home || 'N/A' }}</span>
+                        </div>
+                        
+                        <div class="text-sm" v-if="equiposStats.awayTeam.clean_sheet">
+                            <span class="text-gray-400">Porterías a cero:</span> 
+                            <span class="text-white">{{ equiposStats.awayTeam.clean_sheet?.total || 0 }}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Head-to-Head -->
+                <div class="col-span-1 md:col-span-2 bg-black/30 border border-zinc-800 rounded-lg p-4">
+                    <h3 class="font-bold text-white mb-2">Enfrentamientos directos</h3>
+                    
+                    <div v-if="equiposStats.headToHead && equiposStats.headToHead.length > 0" class="space-y-2">
+                        <div 
+                            v-for="(match, index) in equiposStats.headToHead" 
+                            :key="index"
+                            class="text-sm flex justify-between border-b border-zinc-800 pb-2"
+                        >
+                            <div class="flex items-center">
+                                <span class="text-gray-300 mr-1">{{ match.teams.home.name }}</span>
+                                <span class="text-white mx-1">{{ match.goals.home }}-{{ match.goals.away }}</span>
+                                <span class="text-gray-300 ml-1">{{ match.teams.away.name }}</span>
+                            </div>
+                            <div class="text-gray-400">
+                                {{ new Date(match.fixture.date).toLocaleDateString() }}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div v-else class="text-gray-400 text-sm">
+                        No hay enfrentamientos directos recientes.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-6 text-right">
+                <button @click="showStatsModal = false" class="px-4 py-2 bg-gray-700 hover:bg-gray-800 text-white rounded">Cerrar</button>
             </div>
         </div>
     </Modal>

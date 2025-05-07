@@ -27,6 +27,8 @@ export const ADMIN_ROUTES = {
     MATCHES: '/admin/matches',
     SUBSCRIPTIONS: '/admin/subscriptions',
     API: '/admin/api',
+    FOOTBALL_DATA_TEST: '/admin/football-data-test',
+    FOOTBALL_DATA_IMPORT: '/admin/football-data/import',
     FETCH_TODAY_MATCHES: '/admin/fetch-today-matches',
     SAVE_MATCHES: '/admin/save-matches',
     TEST_API_CONNECTION: '/admin/test-api-connection',

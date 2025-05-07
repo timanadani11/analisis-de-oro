@@ -8,7 +8,7 @@ use App\Models\League;
 use App\Models\Season;
 use App\Models\Sport;
 use App\Models\Team;
-use App\Services\FootballApiService;
+use App\Services\FootballDataService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -32,17 +32,17 @@ class FetchFootballMatches extends Command
     /**
      * The football API service
      *
-     * @var FootballApiService
+     * @var FootballDataService
      */
-    protected $apiService;
+    protected $footballApiService;
 
     /**
      * Create a new command instance.
      */
-    public function __construct(FootballApiService $apiService)
+    public function __construct(FootballDataService $footballApiService)
     {
         parent::__construct();
-        $this->apiService = $apiService;
+        $this->footballApiService = $footballApiService;
     }
 
     /**
@@ -75,7 +75,7 @@ class FetchFootballMatches extends Command
     {
         $this->info("Fetching matches for {$date}...");
         
-        $response = $this->apiService->getFixturesByDate($date);
+        $response = $this->footballApiService->getFixturesByDate($date);
         
         if (!$response || !isset($response['response']) || empty($response['response'])) {
             $this->warn("No matches found for {$date} or API request failed");

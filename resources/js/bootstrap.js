@@ -8,6 +8,8 @@ const csrfToken = document.head.querySelector('meta[name="csrf-token"]');
 
 if (csrfToken) {
     window.axios.defaults.headers.common['X-CSRF-TOKEN'] = csrfToken.content;
+    // También agregar como header para Laravel
+    window.axios.defaults.headers.common['X-XSRF-TOKEN'] = csrfToken.content;
 } else {
     console.error('CSRF token not found: https://laravel.com/docs/csrf#csrf-x-csrf-token');
 }

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { Head, Link } from '@inertiajs/vue3';
 import AppLayout from '@/Layouts/AppLayout.vue';
+import axios from 'axios';
 
 // Props desde el controlador
 const props = defineProps({
@@ -11,6 +12,16 @@ const props = defineProps({
     stats: Object,
 });
 
+// Estado local
+const selectedFilter = ref('all'); // all, live, upcoming, finished
+const isLoadingStats = ref(false);
+const isLoadingAnalysis = ref(false);
+const statsData = ref(null);
+const analysisResults = ref(null);
+const showAnalysisModal = ref(false);
+const currentMatch = ref(null);
+const currentStep = ref(''); // stats, analysis
+
 // Helper para obtener rutas directas
 const getDirectRoute = (name, params = {}) => {
     const baseURL = window.location.origin;
@@ -19,9 +30,6 @@ const getDirectRoute = (name, params = {}) => {
     };
     return routes[name] ? routes[name].replace('{}', params) : '#';
 };
-
-// Estado local
-const selectedFilter = ref('all'); // all, live, upcoming, finished
 
 // Partidos filtrados
 const filteredLeagues = computed(() => {
@@ -74,6 +82,135 @@ function translateStatus(status) {
     };
     
     return statusMap[status] || status;
+}
+
+// Obtener estadísticas del partido
+function getMatchStats(match) {
+    isLoadingStats.value = true;
+    currentMatch.value = match;
+    statsData.value = null;
+    analysisResults.value = null;
+    showAnalysisModal.value = true;
+    currentStep.value = 'stats';
+    
+    console.log('Obteniendo estadísticas del partido:', match.home_team.name, 'vs', match.away_team.name);
+    
+    // Verificar que los datos necesarios estén presentes
+    if (!match.home_team.id || !match.away_team.id) {
+        console.error('Faltan IDs de equipos:', match);
+        statsData.value = { error: 'Faltan IDs de los equipos para obtener estadísticas' };
+        isLoadingStats.value = false;
+        return;
+    }
+    
+    // Buscar el ID de la liga - podría estar en diferentes lugares
+    let leagueId = match.league_id;
+    
+    // Si no está disponible directamente, intentamos extraerlo de otras propiedades
+    if (!leagueId && match.league) {
+        if (typeof match.league === 'object' && match.league.id) {
+            leagueId = match.league.id;
+        } else if (typeof match.league === 'number') {
+            leagueId = match.league;
+        }
+    }
+    
+    // Si aún no tenemos leagueId, podemos intentar usar un valor por defecto o mostrar error
+    if (!leagueId) {
+        console.error('No se pudo determinar el ID de la liga:', match);
+        statsData.value = { error: 'Falta el ID de la liga para obtener estadísticas' };
+        isLoadingStats.value = false;
+        return;
+    }
+    
+    const season = new Date().getFullYear(); // Usar año actual como temporada por defecto
+    
+    console.log('Enviando solicitud de estadísticas con datos:', {
+        home_team_id: match.home_team.id,
+        away_team_id: match.away_team.id,
+        league_id: leagueId,
+        season: season
+    });
+    
+    axios.post('/football-api/match-statistics', {
+        home_team_id: match.home_team.id,
+        away_team_id: match.away_team.id,
+        league_id: leagueId,
+        season: season
+    })
+    .then(response => {
+        console.log('Respuesta de estadísticas recibida:', response.data);
+        
+        if (response.data.success) {
+            if (!response.data.data) {
+                console.error('Respuesta exitosa pero sin datos');
+                statsData.value = { error: 'La API devolvió una respuesta vacía' };
+                return;
+            }
+            
+            statsData.value = response.data.data;
+            console.log('Datos de estadísticas guardados:', statsData.value);
+        } else {
+            console.error('Error en respuesta de API de estadísticas:', response.data.message);
+            statsData.value = { error: response.data.message || 'Error desconocido en la API' };
+        }
+    })
+    .catch(error => {
+        console.error('Error en solicitud de estadísticas:', error);
+        const errorMessage = error.response?.data?.message || error.message || 'Error en la solicitud de estadísticas';
+        statsData.value = { error: errorMessage };
+    })
+    .finally(() => {
+        isLoadingStats.value = false;
+    });
+}
+
+// Analizar estadísticas ya obtenidas
+function analyzeMatchStats() {
+    if (!statsData.value || statsData.value.error) {
+        console.error('No hay estadísticas para analizar');
+        return;
+    }
+    
+    isLoadingAnalysis.value = true;
+    currentStep.value = 'analysis';
+    
+    console.log('Analizando estadísticas:', statsData.value);
+    
+    // Generar análisis de texto usando el servicio del backend
+    axios.post('/analizar-partido', { match_data: statsData.value })
+    .then(response => {
+        console.log('Respuesta de análisis recibida:', response.data);
+        
+        if (response.data.success) {
+            analysisResults.value = {
+                ...statsData.value,
+                textAnalysis: response.data.analysis
+            };
+        } else {
+            console.error('Error generando análisis:', response.data.message);
+            analysisResults.value = { 
+                error: response.data.message || 'Error desconocido al generar análisis' 
+            };
+        }
+    })
+    .catch(error => {
+        console.error('Error en solicitud de análisis:', error);
+        const errorMessage = error.response?.data?.message || error.message || 'Error en la solicitud de análisis';
+        analysisResults.value = { error: errorMessage };
+    })
+    .finally(() => {
+        isLoadingAnalysis.value = false;
+    });
+}
+
+// Cerrar el modal de análisis
+function closeAnalysisModal() {
+    showAnalysisModal.value = false;
+    statsData.value = null;
+    analysisResults.value = null;
+    currentMatch.value = null;
+    currentStep.value = '';
 }
 </script>
 
@@ -269,6 +406,19 @@ function translateStatus(status) {
                                 <div v-if="match.venue" class="mt-1 text-xs text-gray-500 text-center">
                                     🏟️ {{ match.venue }}
                                 </div>
+                                
+                                <!-- Botón de análisis -->
+                                <div class="mt-2 flex justify-center">
+                                    <button 
+                                        @click="getMatchStats(match)"
+                                        class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-md transition-colors duration-200 flex items-center"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                        </svg>
+                                        Obtener estadísticas
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -276,6 +426,236 @@ function translateStatus(status) {
             </div>
         </div>
     </AppLayout>
+    
+    <!-- Modal de análisis -->
+    <div v-if="showAnalysisModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div class="bg-zinc-900 border border-zinc-700 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <!-- Cabecera del modal -->
+            <div class="p-4 border-b border-zinc-700 flex justify-between items-center">
+                <h3 class="text-xl font-bold text-white" v-if="currentMatch">
+                    Análisis: {{ currentMatch.home_team.name }} vs {{ currentMatch.away_team.name }}
+                </h3>
+                <button @click="closeAnalysisModal" class="text-gray-400 hover:text-white">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- Contenido del modal -->
+            <div class="p-4">
+                <!-- Estado de carga -->
+                <div v-if="isLoadingStats || isLoadingAnalysis" class="flex flex-col items-center justify-center py-8">
+                    <div v-if="isLoadingStats" class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-red-500 mb-4"></div>
+                    <div v-else-if="isLoadingAnalysis" class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+                    <p v-if="isLoadingStats" class="text-gray-300">Obteniendo estadísticas de los equipos...</p>
+                    <p v-else-if="isLoadingAnalysis" class="text-gray-300">Generando análisis del partido...</p>
+                </div>
+                
+                <!-- Error en estadísticas -->
+                <div v-else-if="statsData && statsData.error" class="bg-red-900/30 border border-red-700/50 rounded-lg p-4 text-white">
+                    <h4 class="font-semibold mb-2">Error al obtener estadísticas</h4>
+                    <p>{{ statsData.error }}</p>
+                    
+                    <div class="mt-4 border-t border-red-700/30 pt-4">
+                        <h5 class="font-medium mb-2">Posibles soluciones:</h5>
+                        <ul class="list-disc pl-5 text-sm">
+                            <li class="mb-1">Los datos del equipo pueden no estar disponibles en la API de fútbol</li>
+                            <li class="mb-1">La temporada actual puede no tener estadísticas aún para estos equipos</li>
+                            <li class="mb-1">Puede haber un problema de conexión con el servicio de la API</li>
+                            <li class="mb-1">La liga de este partido puede no estar soportada para análisis</li>
+                        </ul>
+                        
+                        <div class="mt-4 flex justify-center">
+                            <button 
+                                @click="closeAnalysisModal" 
+                                class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md"
+                            >
+                                Cerrar y volver
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Error en análisis -->
+                <div v-else-if="analysisResults && analysisResults.error" class="bg-red-900/30 border border-red-700/50 rounded-lg p-4 text-white">
+                    <h4 class="font-semibold mb-2">Error al generar análisis</h4>
+                    <p>{{ analysisResults.error }}</p>
+                    
+                    <div class="mt-4 border-t border-red-700/30 pt-4">
+                        <h5 class="font-medium mb-2">Posibles soluciones:</h5>
+                        <ul class="list-disc pl-5 text-sm">
+                            <li class="mb-1">Las estadísticas obtenidas pueden ser insuficientes para el análisis</li>
+                            <li class="mb-1">Puede haber un problema con el servicio de análisis</li>
+                            <li class="mb-1">Intente volver a generar el análisis</li>
+                        </ul>
+                        
+                        <div class="mt-4 flex justify-center space-x-4">
+                            <button 
+                                @click="currentStep = 'stats'" 
+                                class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md"
+                            >
+                                Volver a estadísticas
+                            </button>
+                            <button 
+                                @click="closeAnalysisModal" 
+                                class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Paso 1: Mostrar estadísticas cuando las tenemos -->
+                <div v-else-if="statsData && !analysisResults && currentStep === 'stats'" class="space-y-4">
+                    <div class="bg-green-900/20 border border-green-700/30 rounded-lg p-3 mb-4">
+                        <p class="text-green-400 text-sm"><span class="font-semibold">Paso 1 completado:</span> Estadísticas de equipos obtenidas correctamente.</p>
+                        <p class="text-white text-xs mt-1">Ahora puede generar el análisis basado en estos datos estadísticos.</p>
+                    </div>
+                    
+                    <!-- Información general -->
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="text-center">
+                            <img :src="statsData.homeTeam?.team?.logo" class="h-16 w-16 mx-auto mb-2" />
+                            <h4 class="text-white font-semibold">{{ statsData.homeTeam?.team?.name }}</h4>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-white">VS</div>
+                            <div class="text-sm text-gray-400">{{ statsData.homeTeam?.league?.name }}</div>
+                        </div>
+                        <div class="text-center">
+                            <img :src="statsData.awayTeam?.team?.logo" class="h-16 w-16 mx-auto mb-2" />
+                            <h4 class="text-white font-semibold">{{ statsData.awayTeam?.team?.name }}</h4>
+                        </div>
+                    </div>
+                    
+                    <!-- Estadísticas básicas -->
+                    <div class="bg-black/30 rounded-lg p-4 border border-zinc-700">
+                        <h4 class="text-lg font-semibold text-white mb-4">Estadísticas obtenidas</h4>
+                        
+                        <!-- Datos estadísticos generales -->
+                        <div class="grid grid-cols-3 gap-2 text-sm mb-4">
+                            <div class="text-right">
+                                <div class="font-semibold text-white">{{ statsData.homeTeam?.form || '-' }}</div>
+                                <div class="text-xs text-gray-400">Forma reciente</div>
+                            </div>
+                            <div class="text-center text-gray-500">VS</div>
+                            <div class="text-left">
+                                <div class="font-semibold text-white">{{ statsData.awayTeam?.form || '-' }}</div>
+                                <div class="text-xs text-gray-400">Forma reciente</div>
+                            </div>
+                            
+                            <!-- Más estadísticas -->
+                            <div class="text-right">
+                                <div class="font-semibold text-white">{{ statsData.homeTeam?.fixtures?.wins?.total || '0' }}</div>
+                                <div class="text-xs text-gray-400">Victorias</div>
+                            </div>
+                            <div class="text-center text-gray-500">-</div>
+                            <div class="text-left">
+                                <div class="font-semibold text-white">{{ statsData.awayTeam?.fixtures?.wins?.total || '0' }}</div>
+                                <div class="text-xs text-gray-400">Victorias</div>
+                            </div>
+                            
+                            <!-- Goles -->
+                            <div class="text-right">
+                                <div class="font-semibold text-white">{{ statsData.homeTeam?.goals?.for?.total?.total || '0' }}</div>
+                                <div class="text-xs text-gray-400">Goles a favor</div>
+                            </div>
+                            <div class="text-center text-gray-500">-</div>
+                            <div class="text-left">
+                                <div class="font-semibold text-white">{{ statsData.awayTeam?.goals?.for?.total?.total || '0' }}</div>
+                                <div class="text-xs text-gray-400">Goles a favor</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Enfrentamientos directos -->
+                    <div v-if="statsData.headToHead && statsData.headToHead.length > 0" class="bg-black/30 rounded-lg p-4 border border-zinc-700">
+                        <h4 class="text-lg font-semibold text-white mb-3">Últimos enfrentamientos directos</h4>
+                        <div class="space-y-2 text-sm">
+                            <div v-for="(match, index) in statsData.headToHead.slice(0, 3)" :key="index" class="grid grid-cols-3 items-center py-2 border-b border-zinc-800">
+                                <div class="text-right text-white">{{ match.teams.home.name }}</div>
+                                <div class="text-center font-semibold text-white">{{ match.goals.home }} - {{ match.goals.away }}</div>
+                                <div class="text-left text-white">{{ match.teams.away.name }}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Botón para generar análisis -->
+                    <div class="flex justify-center mt-6">
+                        <button 
+                            @click="analyzeMatchStats()"
+                            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors duration-200 flex items-center"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                            Generar Análisis del Partido
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Paso 2: Resultados del análisis -->
+                <div v-else-if="analysisResults && currentStep === 'analysis'" class="space-y-4">
+                    <div class="bg-blue-900/20 border border-blue-700/30 rounded-lg p-3 mb-4">
+                        <p class="text-blue-400 text-sm"><span class="font-semibold">Paso 2 completado:</span> Análisis del partido generado.</p>
+                        <p class="text-white text-xs mt-1">El análisis se ha creado basado en datos estadísticos reales de los equipos.</p>
+                    </div>
+                    
+                    <!-- Información general -->
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="text-center">
+                            <img :src="analysisResults.homeTeam?.team?.logo" class="h-16 w-16 mx-auto mb-2" />
+                            <h4 class="text-white font-semibold">{{ analysisResults.homeTeam?.team?.name }}</h4>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-white">VS</div>
+                            <div class="text-sm text-gray-400">{{ analysisResults.homeTeam?.league?.name }}</div>
+                        </div>
+                        <div class="text-center">
+                            <img :src="analysisResults.awayTeam?.team?.logo" class="h-16 w-16 mx-auto mb-2" />
+                            <h4 class="text-white font-semibold">{{ analysisResults.awayTeam?.team?.name }}</h4>
+                        </div>
+                    </div>
+                    
+                    <!-- Análisis de texto (si está disponible) -->
+                    <div v-if="analysisResults.textAnalysis" class="bg-black/30 rounded-lg p-4 border border-zinc-700">
+                        <div class="prose prose-invert max-w-none text-sm" v-html="analysisResults.textAnalysis"></div>
+                    </div>
+                    
+                    <!-- Botones de navegación -->
+                    <div class="flex justify-center space-x-4 mt-6">
+                        <button 
+                            @click="currentStep = 'stats'"
+                            class="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded transition-colors duration-200"
+                        >
+                            Volver a estadísticas
+                        </button>
+                        <button 
+                            @click="closeAnalysisModal()"
+                            class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded transition-colors duration-200"
+                        >
+                            Cerrar
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Estado inicial o no válido -->
+                <div v-else class="flex flex-col items-center justify-center py-8">
+                    <div class="text-4xl mb-4">⚽</div>
+                    <p class="text-gray-300 text-center">No hay datos disponibles. Cierre y vuelva a intentarlo.</p>
+                    
+                    <button 
+                        @click="closeAnalysisModal" 
+                        class="mt-4 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-md"
+                    >
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
 </template>
 
 <style scoped>
@@ -297,5 +677,50 @@ function translateStatus(status) {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Estilo para análisis de texto con Markdown */
+.prose h1, .prose h2, .prose h3 {
+    color: white;
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+.prose h1 {
+    font-size: 1.5rem;
+}
+
+.prose h2 {
+    font-size: 1.25rem;
+}
+
+.prose h3 {
+    font-size: 1.1rem;
+}
+
+.prose p {
+    margin-bottom: 0.75em;
+}
+
+.prose ul {
+    list-style-type: disc;
+    padding-left: 1.5em;
+    margin-bottom: 1em;
+}
+
+.prose table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1em;
+}
+
+.prose th, .prose td {
+    border: 1px solid #444;
+    padding: 0.5em;
+    text-align: left;
+}
+
+.prose th {
+    background-color: rgba(0, 0, 0, 0.3);
 }
 </style> 

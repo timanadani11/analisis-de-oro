@@ -16,6 +16,7 @@ class League extends Model
         'type',
         'logo',
         'api_league_id',
+        'country',
         'active',
         'metadata',
     ];

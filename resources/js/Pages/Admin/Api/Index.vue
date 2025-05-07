@@ -145,12 +145,22 @@ const saveMatches = async () => {
         const matchesToSave = Array.isArray(matchesData.value) ? 
             matchesData.value : 
             (matchesData.value.data || []);
-            
+        
+        // Obtener el token CSRF manualmente del meta tag
+        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        
         const response = await axios.post(getDirectRoute('admin.api.action', { action: 'save-matches' }), {
-            matches: matchesToSave
+            matches: matchesToSave,
+            _token: csrfToken
+        }, {
+            headers: {
+                'X-CSRF-TOKEN': csrfToken
+            }
         });
+        
         syncResult.value = response.data;
     } catch (error) {
+        console.error('Error saving matches:', error);
         syncResult.value = {
             success: false,
             message: 'Error al guardar partidos',

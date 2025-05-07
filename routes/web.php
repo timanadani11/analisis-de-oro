@@ -8,8 +8,9 @@ use App\Http\Controllers\Admin\AdminController;
 use App\Http\Controllers\Admin\AdminAuthController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-use App\Services\FootballApiService;
 use App\Http\Controllers\GeminiController;
+use App\Http\Controllers\FootballController;
+use App\Http\Controllers\FootballDataController;
 
 // Rutas públicas
 Route::get('/', function () {
@@ -121,20 +122,19 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/api/action/sync-leagues', [AdminController::class, 'syncLeagues']);
         Route::get('/api/action/sync-teams', [AdminController::class, 'syncTeams']);
         Route::post('/api/action/save-matches', [AdminController::class, 'saveMatches']);
+        
+        // Ruta para la prueba de football-data.org
+        Route::get('/football-data-test', [AdminController::class, 'footballDataTest'])->name('football-data-test');
     });
 });
 
-// Ruta de prueba para la API de fútbol
-Route::get('/test-football-api', function () {
-    $footballApi = app(FootballApiService::class);
-    
-    // Test de conexión simple
-    $status = $footballApi->testConnection();
-    
-    return [
-        'success' => $status,
-        'message' => $status ? 'API conectada correctamente' : 'Error de conexión con la API',
-    ];
+// Rutas para la API de fútbol
+Route::prefix('football-api')->name('football-api.')->group(function () {
+    Route::get('/test-connection', [FootballController::class, 'testApiConnection'])->name('test-connection');
+    Route::get('/today-matches', [FootballController::class, 'getTodayMatches'])->name('today-matches');
+    Route::post('/fetch-league', [FootballController::class, 'fetchLeague'])->name('fetch-league');
+    Route::post('/fetch-teams', [FootballController::class, 'fetchTeams'])->name('fetch-teams');
+    Route::post('/match-statistics', [FootballController::class, 'getMatchStatistics'])->name('match-statistics');
 });
 
 // Ruta para probar la API de Gemini
@@ -143,5 +143,26 @@ Route::get('/test-gemini', [GeminiController::class, 'testGemini']);
 // Ruta para analizar un partido
 Route::post('/analizar-partido', [GeminiController::class, 'analizarPartido']);
 
+// Ruta para obtener estadísticas de equipos
+Route::post('/estadisticas-equipos', [FootballController::class, 'getTeamStats']);
+
+// Rutas para la API football-data.org
+Route::prefix('football-data')->name('football-data.')->group(function () {
+    Route::get('/test', [FootballDataController::class, 'testApiConnection'])->name('test');
+    Route::get('/champions-teams', [FootballDataController::class, 'getChampionsLeagueTeams'])->name('champions-teams');
+    Route::post('/team-stats', [FootballDataController::class, 'getTeamStats'])->name('team-stats');
+    Route::post('/matchup-stats', [FootballDataController::class, 'getMatchupStats'])->name('matchup-stats');
+});
+
 // Ya no necesitamos incluir las rutas de autenticación ya que las hemos definido explícitamente
 require __DIR__.'/auth.php';
+
+// Rutas de importación de datos de football-data.org
+Route::prefix('admin/football-data')->middleware(['auth'])->group(function () {
+    Route::get('/import', [App\Http\Controllers\Admin\FootballDataImportController::class, 'index'])->name('football-data.import');
+    Route::post('/import/leagues', [App\Http\Controllers\Admin\FootballDataImportController::class, 'importLeagues'])->name('football-data.import.leagues');
+    Route::post('/import/teams', [App\Http\Controllers\Admin\FootballDataImportController::class, 'importTeams'])->name('football-data.import.teams');
+    Route::post('/import/team-stats', [App\Http\Controllers\Admin\FootballDataImportController::class, 'importTeamStats'])->name('football-data.import.team-stats');
+    Route::post('/import/all', [App\Http\Controllers\Admin\FootballDataImportController::class, 'importAll'])->name('football-data.import.all');
+    Route::get('/team-stats/{teamId}', [App\Http\Controllers\Admin\FootballDataImportController::class, 'viewTeamStats'])->name('football-data.team-stats');
+});
