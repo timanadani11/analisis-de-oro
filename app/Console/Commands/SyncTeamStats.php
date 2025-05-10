@@ -161,7 +161,25 @@ class SyncTeamStats extends Command
             
             // Obtener estadísticas desde el servicio
             $footballDataService = app(FootballDataService::class);
-            $stats = $footballDataService->getTeamStats($team->id);
+            
+            // Verificar que el equipo tenga un api_team_id
+            if (!$team->api_team_id) {
+                if ($verbose) {
+                    $this->error("El equipo {$team->name} no tiene un api_team_id válido.");
+                }
+                Log::error("Equipo sin api_team_id", [
+                    'team_id' => $team->id,
+                    'team_name' => $team->name
+                ]);
+                return false;
+            }
+            
+            // Usar api_team_id para la solicitud a la API
+            if ($verbose) {
+                $this->line("Consultando API con api_team_id: {$team->api_team_id} para equipo {$team->name} (id: {$team->id})");
+            }
+            
+            $stats = $footballDataService->getTeamStats($team->api_team_id);
             
             if (!$stats) {
                 if ($verbose) {

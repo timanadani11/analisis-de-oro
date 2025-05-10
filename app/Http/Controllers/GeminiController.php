@@ -83,6 +83,12 @@ class GeminiController extends Controller
     public function analizarPartido(Request $request)
     {
         try {
+            Log::debug('Iniciando analizarPartido con datos: ', [
+                'request_has_match_data' => $request->has('match_data'),
+                'has_local' => $request->has('local'),
+                'has_visitante' => $request->has('visitante')
+            ]);
+            
             // Si recibimos datos del partido directamente, analizamos con nuestra lógica
             if ($request->has('match_data')) {
                 $matchData = $request->input('match_data');
@@ -276,120 +282,88 @@ class GeminiController extends Controller
             'head_to_head' => []
         ];
         
-        // Obtener estadísticas de los equipos usando consultas directas
-        if ($homeTeamId > 0) {
-            // Buscar estadísticas directamente en la tabla team_stats
-            $homeStats = DB::table('team_stats')->where('team_id', $homeTeamId)->first();
+        try {
+            // Buscar equipos por ID
+            $homeTeam = \App\Models\Team::find($homeTeamId);
+            $awayTeam = \App\Models\Team::find($awayTeamId);
             
-            Log::debug('Estadísticas del equipo local', [
-                'team_id' => $homeTeamId, 
-                'found' => $homeStats ? 'yes' : 'no'
-            ]);
-            
-            if ($homeStats && isset($homeStats->stats_json)) {
-                // Decodificar JSON para obtener las estadísticas
-                $statsJson = is_string($homeStats->stats_json) ? 
-                    json_decode($homeStats->stats_json, true) : $homeStats->stats_json;
-                    
-                $result['home']['stats'] = $statsJson;
-                
-                Log::debug('Estadísticas decodificadas del equipo local', [
-                    'keys' => $statsJson ? array_keys($statsJson) : 'none'
+            if (!$homeTeam || !$awayTeam) {
+                Log::warning('Uno o ambos equipos no se encontraron en la base de datos', [
+                    'home_team_id' => $homeTeamId,
+                    'away_team_id' => $awayTeamId
                 ]);
             } else {
-                // Si no hay estadísticas en la BD, intentar con la API de football-data.org
-                try {
-                    $footballDataService = app(\App\Services\FootballDataService::class);
-                    $teamStats = $footballDataService->getTeamStats($homeTeamId);
-                    
-                    if ($teamStats) {
-                        $result['home']['stats'] = [
-                            'team' => $teamStats['team'],
-                            'fixtures' => [
-                                'played' => [
-                                    'total' => $teamStats['currentSeason']['stats']['summary']['played'] ?? 0,
-                                    'home' => $teamStats['currentSeason']['stats']['home']['played'] ?? 0,
-                                    'away' => $teamStats['currentSeason']['stats']['away']['played'] ?? 0
-                                ],
-                                'wins' => [
-                                    'total' => $teamStats['currentSeason']['stats']['summary']['won'] ?? 0,
-                                    'home' => $teamStats['currentSeason']['stats']['home']['won'] ?? 0,
-                                    'away' => $teamStats['currentSeason']['stats']['away']['won'] ?? 0
-                                ],
-                                'draws' => [
-                                    'total' => $teamStats['currentSeason']['stats']['summary']['draw'] ?? 0,
-                                    'home' => $teamStats['currentSeason']['stats']['home']['draw'] ?? 0,
-                                    'away' => $teamStats['currentSeason']['stats']['away']['draw'] ?? 0
-                                ],
-                                'loses' => [
-                                    'total' => $teamStats['currentSeason']['stats']['summary']['lost'] ?? 0,
-                                    'home' => $teamStats['currentSeason']['stats']['home']['lost'] ?? 0,
-                                    'away' => $teamStats['currentSeason']['stats']['away']['lost'] ?? 0
-                                ]
-                            ],
-                            'goals' => [
-                                'for' => [
-                                    'total' => [
-                                        'total' => $teamStats['currentSeason']['stats']['summary']['goalsFor'] ?? 0,
-                                        'home' => $teamStats['currentSeason']['stats']['home']['goalsFor'] ?? 0,
-                                        'away' => $teamStats['currentSeason']['stats']['away']['goalsFor'] ?? 0
-                                    ]
-                                ],
-                                'against' => [
-                                    'total' => [
-                                        'total' => $teamStats['currentSeason']['stats']['summary']['goalsAgainst'] ?? 0,
-                                        'home' => $teamStats['currentSeason']['stats']['home']['goalsAgainst'] ?? 0,
-                                        'away' => $teamStats['currentSeason']['stats']['away']['goalsAgainst'] ?? 0
-                                    ]
-                                ]
-                            ],
-                            'clean_sheet' => [
-                                'total' => $teamStats['currentSeason']['stats']['summary']['cleanSheets'] ?? 0
-                            ],
-                            'failed_to_score' => [
-                                'total' => $teamStats['currentSeason']['stats']['summary']['failedToScore'] ?? 0
-                            ]
-                        ];
-                        
-                        // Obtener partidos recientes de la API
-                        if (!empty($teamStats['history']['matches'])) {
-                            $recentMatches = array_slice($teamStats['history']['matches'], 0, 5);
-                            foreach ($recentMatches as $match) {
-                                $isHome = $match['homeTeam']['id'] == $homeTeamId;
-                                $result['home']['recent_matches'][] = [
-                                    'opponent' => $isHome ? $match['awayTeam']['name'] : $match['homeTeam']['name'],
-                                    'goals_for' => $isHome ? $match['score']['fullTime']['home'] : $match['score']['fullTime']['away'],
-                                    'goals_against' => $isHome ? $match['score']['fullTime']['away'] : $match['score']['fullTime']['home'],
-                                    'match_date' => substr($match['utcDate'], 0, 10),
-                                    'is_home' => $isHome,
-                                    'result' => $this->determinarResultado(
-                                        $match['score']['fullTime']['home'],
-                                        $match['score']['fullTime']['away'],
-                                        $isHome
-                                    )
-                                ];
-                            }
-                        }
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Error obteniendo estadísticas desde API', [
-                        'team_id' => $homeTeamId,
-                        'error' => $e->getMessage()
-                    ]);
-                }
+                Log::info('Equipos encontrados en la base de datos', [
+                    'home_team' => $homeTeam->name,
+                    'away_team' => $awayTeam->name
+                ]);
             }
             
-            // Obtener últimos 5 partidos del equipo local si aún no se llenaron por la API
-            if (empty($result['home']['recent_matches'])) {
-                $homeMatches = FootballMatch::where(function($query) use ($homeTeamId) {
-                    $query->where('home_team_id', $homeTeamId)
-                          ->orWhere('away_team_id', $homeTeamId);
-                })
-                ->orderBy('match_date', 'desc')
-                ->take(5)
-                ->get();
+            // Obtener estadísticas del equipo local desde la base de datos
+            $homeTeamStats = \App\Models\TeamStats::where('team_id', $homeTeamId)->first();
+            if ($homeTeamStats && !empty($homeTeamStats->stats_json)) {
+                $statsData = is_string($homeTeamStats->stats_json) 
+                    ? json_decode($homeTeamStats->stats_json, true) 
+                    : $homeTeamStats->stats_json;
                 
-                foreach ($homeMatches as $match) {
+                if (json_last_error() === JSON_ERROR_NONE && $statsData) {
+                    Log::info('Estadísticas del equipo local encontradas en la base de datos', [
+                        'team_id' => $homeTeamId,
+                        'team_name' => $homeTeamName,
+                        'stats_keys' => is_array($statsData) ? array_keys($statsData) : 'no_keys'
+                    ]);
+                    
+                    $result['home']['stats'] = $statsData;
+                } else {
+                    Log::warning('Error al decodificar JSON de estadísticas del equipo local', [
+                        'team_id' => $homeTeamId,
+                        'json_error' => json_last_error_msg()
+                    ]);
+                }
+            } else {
+                Log::warning('No se encontraron estadísticas del equipo local en la base de datos', [
+                    'team_id' => $homeTeamId
+                ]);
+            }
+            
+            // Obtener estadísticas del equipo visitante desde la base de datos
+            $awayTeamStats = \App\Models\TeamStats::where('team_id', $awayTeamId)->first();
+            if ($awayTeamStats && !empty($awayTeamStats->stats_json)) {
+                $statsData = is_string($awayTeamStats->stats_json) 
+                    ? json_decode($awayTeamStats->stats_json, true) 
+                    : $awayTeamStats->stats_json;
+                
+                if (json_last_error() === JSON_ERROR_NONE && $statsData) {
+                    Log::info('Estadísticas del equipo visitante encontradas en la base de datos', [
+                        'team_id' => $awayTeamId,
+                        'team_name' => $awayTeamName,
+                        'stats_keys' => is_array($statsData) ? array_keys($statsData) : 'no_keys'
+                    ]);
+                    
+                    $result['away']['stats'] = $statsData;
+                } else {
+                    Log::warning('Error al decodificar JSON de estadísticas del equipo visitante', [
+                        'team_id' => $awayTeamId,
+                        'json_error' => json_last_error_msg()
+                    ]);
+                }
+            } else {
+                Log::warning('No se encontraron estadísticas del equipo visitante en la base de datos', [
+                    'team_id' => $awayTeamId
+                ]);
+            }
+            
+            // Obtener partidos recientes del equipo local
+            $homeRecentMatches = FootballMatch::where(function($query) use ($homeTeamId) {
+                $query->where('home_team_id', $homeTeamId)
+                      ->orWhere('away_team_id', $homeTeamId);
+            })
+            ->orderBy('match_date', 'desc')
+            ->take(5)
+            ->get();
+            
+            if ($homeRecentMatches->count() > 0) {
+                foreach ($homeRecentMatches as $match) {
                     $isHome = $match->home_team_id == $homeTeamId;
                     $result['home']['recent_matches'][] = [
                         'opponent' => $isHome ? $match->awayTeam->name : $match->homeTeam->name,
@@ -400,122 +374,28 @@ class GeminiController extends Controller
                         'result' => $this->getMatchResult($match, $isHome)
                     ];
                 }
-            }
-        }
-        
-        if ($awayTeamId > 0) {
-            // Buscar estadísticas directamente en la tabla team_stats
-            $awayStats = DB::table('team_stats')->where('team_id', $awayTeamId)->first();
-            
-            Log::debug('Estadísticas del equipo visitante', [
-                'team_id' => $awayTeamId, 
-                'found' => $awayStats ? 'yes' : 'no'
-            ]);
-            
-            if ($awayStats && isset($awayStats->stats_json)) {
-                // Decodificar JSON para obtener las estadísticas
-                $statsJson = is_string($awayStats->stats_json) ? 
-                    json_decode($awayStats->stats_json, true) : $awayStats->stats_json;
-                    
-                $result['away']['stats'] = $statsJson;
                 
-                Log::debug('Estadísticas decodificadas del equipo visitante', [
-                    'keys' => $statsJson ? array_keys($statsJson) : 'none'
+                Log::info('Partidos recientes del equipo local encontrados en la base de datos', [
+                    'team_id' => $homeTeamId,
+                    'match_count' => $homeRecentMatches->count()
                 ]);
             } else {
-                // Si no hay estadísticas en la BD, intentar con la API de football-data.org
-                try {
-                    $footballDataService = app(\App\Services\FootballDataService::class);
-                    $teamStats = $footballDataService->getTeamStats($awayTeamId);
-                    
-                    if ($teamStats) {
-                        $result['away']['stats'] = [
-                            'team' => $teamStats['team'],
-                            'fixtures' => [
-                                'played' => [
-                                    'total' => $teamStats['currentSeason']['stats']['summary']['played'] ?? 0,
-                                    'home' => $teamStats['currentSeason']['stats']['home']['played'] ?? 0,
-                                    'away' => $teamStats['currentSeason']['stats']['away']['played'] ?? 0
-                                ],
-                                'wins' => [
-                                    'total' => $teamStats['currentSeason']['stats']['summary']['won'] ?? 0,
-                                    'home' => $teamStats['currentSeason']['stats']['home']['won'] ?? 0,
-                                    'away' => $teamStats['currentSeason']['stats']['away']['won'] ?? 0
-                                ],
-                                'draws' => [
-                                    'total' => $teamStats['currentSeason']['stats']['summary']['draw'] ?? 0,
-                                    'home' => $teamStats['currentSeason']['stats']['home']['draw'] ?? 0,
-                                    'away' => $teamStats['currentSeason']['stats']['away']['draw'] ?? 0
-                                ],
-                                'loses' => [
-                                    'total' => $teamStats['currentSeason']['stats']['summary']['lost'] ?? 0,
-                                    'home' => $teamStats['currentSeason']['stats']['home']['lost'] ?? 0,
-                                    'away' => $teamStats['currentSeason']['stats']['away']['lost'] ?? 0
-                                ]
-                            ],
-                            'goals' => [
-                                'for' => [
-                                    'total' => [
-                                        'total' => $teamStats['currentSeason']['stats']['summary']['goalsFor'] ?? 0,
-                                        'home' => $teamStats['currentSeason']['stats']['home']['goalsFor'] ?? 0,
-                                        'away' => $teamStats['currentSeason']['stats']['away']['goalsFor'] ?? 0
-                                    ]
-                                ],
-                                'against' => [
-                                    'total' => [
-                                        'total' => $teamStats['currentSeason']['stats']['summary']['goalsAgainst'] ?? 0,
-                                        'home' => $teamStats['currentSeason']['stats']['home']['goalsAgainst'] ?? 0,
-                                        'away' => $teamStats['currentSeason']['stats']['away']['goalsAgainst'] ?? 0
-                                    ]
-                                ]
-                            ],
-                            'clean_sheet' => [
-                                'total' => $teamStats['currentSeason']['stats']['summary']['cleanSheets'] ?? 0
-                            ],
-                            'failed_to_score' => [
-                                'total' => $teamStats['currentSeason']['stats']['summary']['failedToScore'] ?? 0
-                            ]
-                        ];
-                        
-                        // Obtener partidos recientes de la API
-                        if (!empty($teamStats['history']['matches'])) {
-                            $recentMatches = array_slice($teamStats['history']['matches'], 0, 5);
-                            foreach ($recentMatches as $match) {
-                                $isHome = $match['homeTeam']['id'] == $awayTeamId;
-                                $result['away']['recent_matches'][] = [
-                                    'opponent' => $isHome ? $match['awayTeam']['name'] : $match['homeTeam']['name'],
-                                    'goals_for' => $isHome ? $match['score']['fullTime']['home'] : $match['score']['fullTime']['away'],
-                                    'goals_against' => $isHome ? $match['score']['fullTime']['away'] : $match['score']['fullTime']['home'],
-                                    'match_date' => substr($match['utcDate'], 0, 10),
-                                    'is_home' => $isHome,
-                                    'result' => $this->determinarResultado(
-                                        $match['score']['fullTime']['home'],
-                                        $match['score']['fullTime']['away'],
-                                        $isHome
-                                    )
-                                ];
-                            }
-                        }
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Error obteniendo estadísticas desde API', [
-                        'team_id' => $awayTeamId,
-                        'error' => $e->getMessage()
-                    ]);
-                }
+                Log::warning('No se encontraron partidos recientes del equipo local en la base de datos', [
+                    'team_id' => $homeTeamId
+                ]);
             }
             
-            // Obtener últimos 5 partidos del equipo visitante si aún no se llenaron por la API
-            if (empty($result['away']['recent_matches'])) {
-                $awayMatches = FootballMatch::where(function($query) use ($awayTeamId) {
-                    $query->where('home_team_id', $awayTeamId)
-                          ->orWhere('away_team_id', $awayTeamId);
-                })
-                ->orderBy('match_date', 'desc')
-                ->take(5)
-                ->get();
-                
-                foreach ($awayMatches as $match) {
+            // Obtener partidos recientes del equipo visitante
+            $awayRecentMatches = FootballMatch::where(function($query) use ($awayTeamId) {
+                $query->where('home_team_id', $awayTeamId)
+                      ->orWhere('away_team_id', $awayTeamId);
+            })
+            ->orderBy('match_date', 'desc')
+            ->take(5)
+            ->get();
+            
+            if ($awayRecentMatches->count() > 0) {
+                foreach ($awayRecentMatches as $match) {
                     $isHome = $match->home_team_id == $awayTeamId;
                     $result['away']['recent_matches'][] = [
                         'opponent' => $isHome ? $match->awayTeam->name : $match->homeTeam->name,
@@ -526,12 +406,18 @@ class GeminiController extends Controller
                         'result' => $this->getMatchResult($match, $isHome)
                     ];
                 }
+                
+                Log::info('Partidos recientes del equipo visitante encontrados en la base de datos', [
+                    'team_id' => $awayTeamId,
+                    'match_count' => $awayRecentMatches->count()
+                ]);
+            } else {
+                Log::warning('No se encontraron partidos recientes del equipo visitante en la base de datos', [
+                    'team_id' => $awayTeamId
+                ]);
             }
-        }
-        
-        // Obtener enfrentamientos directos
-        if ($homeTeamId > 0 && $awayTeamId > 0) {
-            // Primero buscar en la base de datos local
+            
+            // Obtener enfrentamientos directos
             $h2hMatches = FootballMatch::where(function($query) use ($homeTeamId, $awayTeamId) {
                 $query->where(function($q) use ($homeTeamId, $awayTeamId) {
                     $q->where('home_team_id', $homeTeamId)
@@ -545,42 +431,7 @@ class GeminiController extends Controller
             ->take(5)
             ->get();
             
-            Log::debug('Enfrentamientos directos en BD', [
-                'count' => $h2hMatches->count()
-            ]);
-            
-            // Si no hay suficientes enfrentamientos en la BD, intentar con la API
-            if ($h2hMatches->count() < 3) {
-                try {
-                    $footballDataService = app(\App\Services\FootballDataService::class);
-                    $matchupStats = $footballDataService->getMatchupStats($homeTeamId, $awayTeamId);
-                    
-                    if (!empty($matchupStats['headToHead'])) {
-                        foreach ($matchupStats['headToHead'] as $match) {
-                            $homeIsFirstTeam = $match['homeTeam']['id'] == $homeTeamId;
-                            $result['head_to_head'][] = [
-                                'date' => substr($match['utcDate'], 0, 10),
-                                'home_team' => $homeIsFirstTeam ? $homeTeamName : $awayTeamName,
-                                'away_team' => $homeIsFirstTeam ? $awayTeamName : $homeTeamName,
-                                'home_goals' => $homeIsFirstTeam ? $match['score']['fullTime']['home'] : $match['score']['fullTime']['away'],
-                                'away_goals' => $homeIsFirstTeam ? $match['score']['fullTime']['away'] : $match['score']['fullTime']['home'],
-                                'winner' => $this->determinarGanador(
-                                    $match['score']['fullTime']['home'], 
-                                    $match['score']['fullTime']['away'], 
-                                    $homeIsFirstTeam
-                                )
-                            ];
-                        }
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Error obteniendo H2H desde API', [
-                        'error' => $e->getMessage()
-                    ]);
-                }
-            }
-            
-            // Si aún no tenemos H2H o si la API no devolvió nada, usar los de la BD
-            if (empty($result['head_to_head'])) {
+            if ($h2hMatches->count() > 0) {
                 foreach ($h2hMatches as $match) {
                     $homeIsFirstTeam = $match->home_team_id == $homeTeamId;
                     $result['head_to_head'][] = [
@@ -592,7 +443,82 @@ class GeminiController extends Controller
                         'winner' => $this->getWinner($match, $homeTeamId, $awayTeamId)
                     ];
                 }
+                
+                Log::info('Enfrentamientos directos encontrados en la base de datos', [
+                    'home_team_id' => $homeTeamId,
+                    'away_team_id' => $awayTeamId,
+                    'match_count' => $h2hMatches->count()
+                ]);
+            } else {
+                Log::warning('No se encontraron enfrentamientos directos en la base de datos', [
+                    'home_team_id' => $homeTeamId,
+                    'away_team_id' => $awayTeamId
+                ]);
             }
+            
+            // Si no tenemos datos suficientes, intentar complementar con datos de la API solo si tenemos api_team_id
+            if ((!isset($result['home']['stats']) || !isset($result['away']['stats']) || 
+                empty($result['home']['recent_matches']) || empty($result['away']['recent_matches']) || 
+                empty($result['head_to_head'])) && $homeTeam && $awayTeam) {
+                
+                // Verificar si tenemos api_team_id
+                if ($homeTeam->api_team_id && $awayTeam->api_team_id) {
+                    Log::info('Intentando complementar datos faltantes desde la API', [
+                        'home_api_team_id' => $homeTeam->api_team_id,
+                        'away_api_team_id' => $awayTeam->api_team_id
+                    ]);
+                    
+                    $footballDataService = app(\App\Services\FootballDataService::class);
+                    
+                    // Solo obtener estadísticas desde la API si faltan en la base de datos
+                    if (!isset($result['home']['stats'])) {
+                        $homeStats = $footballDataService->getTeamStats($homeTeam->api_team_id);
+                        if ($homeStats) {
+                            $result['home']['stats'] = $homeStats;
+                        }
+                    }
+                    
+                    if (!isset($result['away']['stats'])) {
+                        $awayStats = $footballDataService->getTeamStats($awayTeam->api_team_id);
+                        if ($awayStats) {
+                            $result['away']['stats'] = $awayStats;
+                        }
+                    }
+                    
+                    // Solo obtener partidos recientes desde la API si faltan en la base de datos
+                    if (empty($result['home']['recent_matches'])) {
+                        $homeRecentMatches = $footballDataService->getTeamRecentMatches($homeTeam->api_team_id);
+                        if ($homeRecentMatches && isset($homeRecentMatches['response']) && is_array($homeRecentMatches['response'])) {
+                            $result['home']['recent_matches'] = $homeRecentMatches['response'];
+                        }
+                    }
+                    
+                    if (empty($result['away']['recent_matches'])) {
+                        $awayRecentMatches = $footballDataService->getTeamRecentMatches($awayTeam->api_team_id);
+                        if ($awayRecentMatches && isset($awayRecentMatches['response']) && is_array($awayRecentMatches['response'])) {
+                            $result['away']['recent_matches'] = $awayRecentMatches['response'];
+                        }
+                    }
+                    
+                    // Solo obtener enfrentamientos directos desde la API si faltan en la base de datos
+                    if (empty($result['head_to_head'])) {
+                        $h2h = $footballDataService->getHeadToHead($homeTeam->api_team_id, $awayTeam->api_team_id);
+                        if ($h2h && isset($h2h['response']) && is_array($h2h['response'])) {
+                            $result['head_to_head'] = $h2h['response'];
+                        }
+                    }
+                } else {
+                    Log::warning('No se pueden complementar datos desde la API, faltan api_team_id', [
+                        'home_api_team_id' => $homeTeam ? $homeTeam->api_team_id : null,
+                        'away_api_team_id' => $awayTeam ? $awayTeam->api_team_id : null
+                    ]);
+                }
+            }
+            
+        } catch (\Exception $e) {
+            Log::error('Error al obtener datos estadísticos: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
         }
         
         return $result;
@@ -668,6 +594,27 @@ class GeminiController extends Controller
     private function generarAnalisisIA($homeTeam, $awayTeam, $matchDate, $venue, $statsData)
     {
         try {
+            Log::debug('Entrando a generarAnalisisIA', [
+                'home_team' => $homeTeam,
+                'away_team' => $awayTeam,
+                'statsData_type' => gettype($statsData)
+            ]);
+            
+            // Verificar que statsData tenga la estructura esperada
+            if (!is_array($statsData)) {
+                Log::error('statsData no es un array en generarAnalisisIA', ['type' => gettype($statsData)]);
+                return 'ERROR: Formato de datos estadísticos incorrecto. Por favor, intente nuevamente.';
+            }
+            
+            // Asegurar que statsData tenga todas las claves necesarias
+            $requiredKeys = ['home', 'away', 'head_to_head'];
+            foreach ($requiredKeys as $key) {
+                if (!isset($statsData[$key])) {
+                    Log::error("Clave '$key' faltante en statsData", ['keys' => array_keys($statsData)]);
+                    $statsData[$key] = $key === 'head_to_head' ? [] : ['name' => $key === 'home' ? $homeTeam : $awayTeam, 'stats' => null, 'recent_matches' => []];
+                }
+            }
+            
             // Verificar si tenemos estadísticas
             $homeHasStats = !empty($statsData['home']['stats']);
             $awayHasStats = !empty($statsData['away']['stats']);
@@ -676,30 +623,44 @@ class GeminiController extends Controller
             Log::debug('Datos disponibles para análisis', [
                 'home_has_stats' => $homeHasStats,
                 'away_has_stats' => $awayHasStats,
-                'has_h2h' => $hasH2h
+                'has_h2h' => $hasH2h,
+                'home_recent_matches_type' => isset($statsData['home']['recent_matches']) ? gettype($statsData['home']['recent_matches']) : 'not set',
+                'away_recent_matches_type' => isset($statsData['away']['recent_matches']) ? gettype($statsData['away']['recent_matches']) : 'not set'
             ]);
             
+            // Asegurar que recent_matches sea siempre un array
+            if (!isset($statsData['home']['recent_matches']) || !is_array($statsData['home']['recent_matches'])) {
+                $statsData['home']['recent_matches'] = [];
+            }
+            if (!isset($statsData['away']['recent_matches']) || !is_array($statsData['away']['recent_matches'])) {
+                $statsData['away']['recent_matches'] = [];
+            }
+            
             // Formatear datos para el prompt
-            $homeForm = $this->formatTeamForm($statsData['home']['recent_matches'] ?? []);
-            $awayForm = $this->formatTeamForm($statsData['away']['recent_matches'] ?? []);
-            $h2hData = $this->formatHeadToHead($statsData['head_to_head'] ?? []);
+            $homeForm = $this->formatTeamForm($statsData['home']['recent_matches']);
+            $awayForm = $this->formatTeamForm($statsData['away']['recent_matches']);
+            $h2hData = $this->formatHeadToHead($statsData['head_to_head']);
             
             // Estadísticas adicionales
             $homeStats = $this->formatTeamStats($statsData['home']['stats'] ?? null);
             $awayStats = $this->formatTeamStats($statsData['away']['stats'] ?? null);
             
-            // Crear prompt mejorado
+            // Crear prompt mejorado para análisis más precisos, enfocado en datos reales de la base de datos
             $prompt = "ANÁLISIS PROFESIONAL DE PARTIDO PARA APOSTADORES: $homeTeam vs. $awayTeam\n\n" .
-                "Fecha y hora: $matchDate\n" .
-                "Estadio: $venue\n\n";
-            
+            "Fecha y hora: $matchDate\n" .
+            "Estadio: $venue\n\n";
+        
             // Añadir información sobre disponibilidad de datos
             if (!$homeHasStats || !$awayHasStats) {
                 $prompt .= "NOTA: ⚠️ Hay datos estadísticos limitados disponibles para este análisis. " . 
                     "La predicción se basará en los datos disponibles y conocimiento general sobre los equipos. " .
                     "Los resultados deben considerarse con precaución.\n\n";
             }
-                
+            
+            // Indicar fuente de datos (base de datos local)
+            $prompt .= "ANÁLISIS BASADO EN DATOS REALES ALMACENADOS EN NUESTRA BASE DE DATOS\n" .
+                "Este análisis utiliza estadísticas reales y verificadas de ambos equipos almacenadas en nuestra base de datos para la temporada 2024-2025.\n\n";
+            
             $prompt .= "DATOS ESTADÍSTICOS DEL EQUIPO LOCAL: $homeTeam\n" .
                 "-------------------------------------------\n" .
                 "Forma reciente: $homeForm\n" .
@@ -716,81 +677,94 @@ class GeminiController extends Controller
                 
                 "INSTRUCCIONES PARA EL ANÁLISIS:\n" .
                 "-------------------------------------------\n" .
-                "1. Realiza un análisis detallado del partido basado en los datos proporcionados.\n" .
-                "2. Evalúa la forma actual de ambos equipos y sus probabilidades de victoria/empate.\n" .
-                "3. Analiza las tendencias ofensivas y defensivas de ambos equipos.\n" .
-                "4. Valora la importancia del factor cancha y los resultados previos entre ambos equipos.\n" .
-                "5. Considera factores como el cansancio por calendario, motivación y contexto del partido.\n" .
-                "6. Proporciona un PRONÓSTICO FINAL con la probabilidad estimada (%) para cada resultado posible (1-X-2).\n" .
-                "7. Analiza el mercado de goles totales (Over/Under) con sus probabilidades.\n\n" .
+                "1. Realiza un análisis detallado y preciso del partido basado EXCLUSIVAMENTE en los datos REALES proporcionados.\n" .
+                "2. Evalúa la forma actual de ambos equipos y calcula porcentajes de probabilidad específicos para victoria/empate/derrota.\n" .
+                "3. Analiza detalladamente las tendencias ofensivas y defensivas de ambos equipos usando estadísticas numéricas exactas.\n" .
+                "4. Evalúa cuantitativamente la importancia del factor cancha y resultados previos entre ambos equipos.\n" .
+                "5. Usa EXCLUSIVAMENTE los datos estadísticos proporcionados de nuestra base de datos para hacer predicciones.\n" .
+                "6. Proporciona un PRONÓSTICO FINAL con probabilidades precisas (%) para cada resultado (1-X-2).\n" .
+                "7. Calcula probabilidades exactas para el mercado de goles totales (Over/Under).\n\n" .
                 
-                "MERCADOS DE APUESTAS A CONSIDERAR:\n" .
+                "MERCADOS DE APUESTAS A CONSIDERAR (CON PROBABILIDADES ESPECÍFICAS):\n" .
                 "-------------------------------------------\n" .
-                "- Resultado final (1X2)\n" .
-                "- Doble oportunidad (1X, 12, X2)\n" .
-                "- Hándicap asiático\n" .
-                "- Ambos equipos marcan (BTTS)\n" .
-                "- Más/Menos goles (Líneas: 0.5, 1.5, 2.5, 3.5, 4.5)\n" .
-                "- Marcador exacto\n" .
-                "- Primer goleador\n" .
-                "- Número de córners\n" .
-                "- Número de tarjetas\n" .
-                "- Ganador al descanso / final de partido\n\n" .
+                "- Resultado final (1X2) - Probabilidad exacta para cada resultado\n" .
+                "- Doble oportunidad (1X, 12, X2) - Probabilidad exacta para cada combinación\n" .
+                "- Hándicap asiático (principales líneas) - Probabilidad por línea\n" .
+                "- Ambos equipos marcan (BTTS) - Sí/No con probabilidad\n" .
+                "- Más/Menos goles (Líneas: 0.5, 1.5, 2.5, 3.5, 4.5) - Probabilidad para cada línea\n" .
+                "- Marcador exacto (los 3 más probables con su % de probabilidad)\n" .
+                "- Primer/Último goleador (los 3 más probables con su % de probabilidad)\n" .
+                "- Número de córners (Over/Under) - Probabilidad para cada línea\n" .
+                "- Número de tarjetas (Over/Under) - Probabilidad para cada línea\n" .
+                "- Ganador al descanso / final de partido - Probabilidad para cada combinación\n\n" .
+            
+            "RECOMENDACIONES DE APUESTAS:\n" .
+            "-------------------------------------------\n" .
+                "Proporciona CINCO recomendaciones de apuestas concretas y específicas clasificadas por nivel de riesgo y valor esperado:\n\n" .
                 
-                "RECOMENDACIONES DE APUESTAS:\n" .
-                "-------------------------------------------\n" .
-                "Proporciona CINCO recomendaciones de apuestas distintas clasificadas por nivel de riesgo y valor esperado:\n\n" .
+                "1. APUESTA DE BAJO RIESGO (SEGURA): La más segura, aunque con menor cuota.\n" .
+                "   - Especifica un mercado exacto con una probabilidad calculada (≥75%)\n" .
+                "   - Indica la cuota justa que debería tener (100/probabilidad)\n" .
+                "   - Indica la cuota mínima para apostar con valor\n" .
+                "   - Justifica con datos estadísticos precisos y específicos de nuestra base de datos\n\n" .
                 
-                "1. APUESTA DE BAJO RIESGO (SEGURA): La más segura, aunque con menor cuota/retorno.\n" .
-                "   - Corresponde a un evento con alta probabilidad (>75%)\n" .
-                "   - Ejemplos: Doble oportunidad (1X/X2), Menos/Más de X goles, Hándicap conservador\n" .
-                "   - Ideal para apostantes conservadores o gestión segura del bankroll\n\n" .
-                
-                "2. APUESTA DE RIESGO MODERADO (VALOR): Balance óptimo entre probabilidad y retorno.\n" .
-                "   - Corresponde a un evento con probabilidad media (50-75%)\n" .
-                "   - Ejemplos: 1X2, Ambos equipos marcan, Resultado exacto con margen\n" .
-                "   - Adecuada para apostantes con cierta tolerancia al riesgo\n\n" .
+                "2. APUESTA DE RIESGO MODERADO (VALOR): Balance entre probabilidad y retorno.\n" .
+                "   - Especifica un mercado exacto con una probabilidad calculada (50-75%)\n" .
+                "   - Indica la cuota justa que debería tener (100/probabilidad)\n" .
+                "   - Indica la cuota mínima para apostar con valor\n" .
+                "   - Justifica con datos estadísticos precisos y específicos de nuestra base de datos\n\n" .
                 
                 "3. APUESTA DE RIESGO MEDIO (EQUILIBRADA): Buena relación riesgo/beneficio.\n" .
-                "   - Corresponde a un evento con probabilidad media (40-60%)\n" .
-                "   - Ejemplos: Victoria de un equipo específico, número exacto de goles, hándicap específico\n" .
-                "   - Para apostantes con experiencia en gestión de bankroll\n\n" .
+                "   - Especifica un mercado exacto con una probabilidad calculada (40-60%)\n" .
+                "   - Indica la cuota justa que debería tener (100/probabilidad)\n" .
+                "   - Indica la cuota mínima para apostar con valor\n" .
+                "   - Justifica con datos estadísticos precisos y específicos de nuestra base de datos\n\n" .
                 
-                "4. APUESTA DE ALTO RIESGO (ESPECULATIVA): Mayor cuota potencial pero menor probabilidad.\n" .
-                "   - Corresponde a un evento con baja probabilidad (20-40%)\n" .
-                "   - Ejemplos: Resultado exacto, goleador específico, hándicap agresivo\n" .
-                "   - Para apostantes con alta tolerancia al riesgo y bankroll diversificado\n\n" .
+                "4. APUESTA DE ALTO RIESGO (ESPECULATIVA): Mayor cuota potencial.\n" .
+                "   - Especifica un mercado exacto con una probabilidad calculada (20-40%)\n" .
+                "   - Indica la cuota justa que debería tener (100/probabilidad)\n" .
+                "   - Indica la cuota mínima para apostar con valor\n" .
+                "   - Justifica con datos estadísticos precisos y específicos de nuestra base de datos\n\n" .
                 
-                "5. APUESTA VALOR EXTREMO (LONGSHOT): Altísimo retorno potencial pero muy baja probabilidad.\n" .
-                "   - Corresponde a un evento con muy baja probabilidad (<20%)\n" .
-                "   - Ejemplos: Marcador exacto inusual, combinaciones específicas, sucesos raros\n" .
-                "   - Solo para pequeñas cantidades y apostantes experimentados\n\n" .
+                "5. APUESTA VALOR EXTREMO (LONGSHOT): Altísimo retorno potencial.\n" .
+                "   - Especifica un mercado exacto con una probabilidad calculada (<20%)\n" .
+                "   - Indica la cuota justa que debería tener (100/probabilidad)\n" .
+                "   - Indica la cuota mínima para apostar con valor\n" .
+                "   - Justifica con datos estadísticos precisos y específicos de nuestra base de datos\n\n" .
                 
-                "Para cada recomendación, incluye:\n" .
-                "- Tipo de apuesta (1X2, más/menos goles, ambos marcan, hándicap, etc.)\n" .
-                "- Probabilidad estimada de éxito (%)\n" .
-                "- Justificación basada en datos estadísticos concretos\n" .
-                "- Cuota justa estimada (100/probabilidad)\n" .
-                "- Cuota mínima recomendada para considerar valor\n" .
+                "Para cada recomendación, incluye obligatoriamente:\n" .
+                "- Tipo de apuesta específico (no solo la categoría genérica)\n" .
+                "- Probabilidad estimada calculada con porcentaje exacto (%)\n" .
+                "- Justificación basada en datos estadísticos concretos y detallados de nuestra base de datos\n" .
+                "- Cuota justa matemáticamente calculada (100/probabilidad)\n" .
+                "- Cuota mínima exacta recomendada para considerar valor\n" .
                 "- Nivel de confianza (Muy alta, Alta, Media, Baja, Muy baja)\n\n" .
+            
+            "FORMATO DEL ANÁLISIS:\n" .
+            "-------------------------------------------\n" .
+                "- Comienza con un RESUMEN EJECUTIVO conciso del partido.\n" .
+                "- Sigue con ANÁLISIS POR EQUIPO detallado y basado en datos.\n" .
+                "- Incluye FACTORES CLAVE con impacto cuantificado en el resultado.\n" .
+                "- Añade ANÁLISIS DE MERCADOS con probabilidades precisas.\n" .
+                "- Proporciona CINCO RECOMENDACIONES DE APUESTAS muy específicas.\n" .
+                "- Usa formato estructurado con encabezados claros y porcentajes exactos.\n" .
+                "- Todos los datos estadísticos deben ser precisos y concretos.\n" .
+                "- Finaliza con RESUMEN DE PRONÓSTICOS con predicciones calculadas matemáticamente.\n\n" .
                 
-                "FORMATO DEL ANÁLISIS:\n" .
-                "-------------------------------------------\n" .
-                "- Comienza con un RESUMEN EJECUTIVO del partido (3-4 frases).\n" .
-                "- Sigue con secciones para ANÁLISIS POR EQUIPO (Local y Visitante).\n" .
-                "- Incluye sección de FACTORES CLAVE que influirán en el resultado.\n" .
-                "- Añade sección de ANÁLISIS DE MERCADOS (1X2, Goles, BTTS, etc.).\n" .
-                "- Termina con las CINCO RECOMENDACIONES DE APUESTAS ordenadas por riesgo.\n" .
-                "- Usa formato claro con encabezados, listas, porcentajes y énfasis.\n" .
-                "- Los datos estadísticos específicos deben justificar cada recomendación.\n" .
-                "- Si hay ausencia de datos en alguna categoría, indícalo claramente pero haz una predicción basada en lo disponible.\n" .
-                "- Finaliza con un RESUMEN DE PRONÓSTICOS con los cinco mercados principales (1X2, BTTS, Over/Under 2.5, etc.)";
+                "IMPORTANTE: Basa tu análisis ÚNICAMENTE en los datos proporcionados de nuestra base de datos. No inventes ni asumas estadísticas que no se han proporcionado. Si faltan datos para algún aspecto del análisis, indícalo claramente y basa tus predicciones en los datos disponibles.\n\n" .
+                
+                "AVISO LEGAL (INCLUIR SIEMPRE AL FINAL DEL ANÁLISIS):\n" .
+                "**NOTA IMPORTANTE:** Este análisis se basa **exclusivamente** en los datos proporcionados. " .
+                "La falta de información detallada sobre alguno de los equipos y la ausencia de datos de la temporada actual " .
+                "pueden limitar la precisión de las predicciones. Las cuotas recomendadas son un punto de referencia y " .
+                "pueden variar según la casa de apuestas. Es fundamental realizar una investigación adicional antes de realizar cualquier apuesta.";
+
+            Log::debug('Prompt generado correctamente', [
+                'prompt_length' => strlen($prompt)
+            ]);
 
             // Obtener la clave API de Gemini del archivo .env
-            // usando file_get_contents para leer el archivo directamente
-            $envFile = file_get_contents(base_path('.env'));
-            preg_match('/GEMINI_API_KEY=([^\n\r]+)/', $envFile, $matches);
-            $apiKey = $matches[1] ?? null;
+            $apiKey = env('GEMINI_API_KEY');
             
             // Verificar si tenemos la clave API
             if (empty($apiKey)) {
@@ -850,8 +824,8 @@ class GeminiController extends Controller
             Log::debug('Análisis generado correctamente', [
                 'length' => strlen($analysisText)
             ]);
-            
-            return $analysisText;
+        
+        return $analysisText;
             
         } catch (\Exception $e) {
             Log::error('Error al generar análisis con Gemini', [
@@ -869,43 +843,107 @@ class GeminiController extends Controller
     private function formatTeamForm($matches)
     {
         if (empty($matches)) {
+            Log::debug('No hay partidos recientes disponibles');
             return "No hay datos recientes disponibles";
         }
         
-        $form = [];
-        $resultado = [
-            'victorias' => 0,
-            'empates' => 0,
-            'derrotas' => 0,
-            'goles_favor' => 0,
-            'goles_contra' => 0
-        ];
-        
-        foreach ($matches as $match) {
-            if ($match['result'] === 'victoria') {
-                $form[] = 'V';
-                $resultado['victorias']++;
-            } elseif ($match['result'] === 'empate') {
-                $form[] = 'E';
-                $resultado['empates']++;
-            } else {
-                $form[] = 'D';
-                $resultado['derrotas']++;
-            }
-            
-            $resultado['goles_favor'] += $match['goals_for'];
-            $resultado['goles_contra'] += $match['goals_against'];
+        // Verificar que matches sea un array
+        if (!is_array($matches)) {
+            Log::error('matches no es un array en formatTeamForm', [
+                'matches_type' => gettype($matches),
+                'matches_value' => substr(is_string($matches) ? $matches : '', 0, 100)
+            ]);
+            return "Error: Formato de partidos incorrecto";
         }
         
-        $formString = implode('-', $form);
-        $totalMatches = count($matches);
+        // Identificar estructura de datos basado en las claves disponibles
+        $sampleMatch = reset($matches);
+        $isApiFormat = isset($sampleMatch['teams']);
         
-        $resumenForm = "$formString (Últimos $totalMatches partidos)\n";
-        $resumenForm .= "Balance: {$resultado['victorias']}V {$resultado['empates']}E {$resultado['derrotas']}D\n";
-        $resumenForm .= "Goles: {$resultado['goles_favor']} a favor, {$resultado['goles_contra']} en contra\n";
-        $resumenForm .= "Promedio: " . round($resultado['goles_favor'] / max(1, $totalMatches), 2) . " goles por partido";
+        Log::debug('Formato de partidos detectado', [
+            'is_api_format' => $isApiFormat ? 'yes' : 'no',
+            'sample_keys' => is_array($sampleMatch) ? array_keys($sampleMatch) : 'no_sample'
+        ]);
         
-        return $resumenForm;
+        $form = [];
+        
+        if ($isApiFormat) {
+            // Formato desde la API de football-data
+            foreach ($matches as $match) {
+                try {
+                    // Verificar si el partido ya terminó
+                    if (!isset($match['fixture']['status']['short']) || $match['fixture']['status']['short'] !== 'FT') {
+                        continue; // Saltar partidos que no han terminado
+                    }
+                    
+                    // Obtener resultado
+                    $goals = $match['goals'] ?? null;
+                    $home = $goals['home'] ?? null;
+                    $away = $goals['away'] ?? null;
+                    
+                    // Si no hay goles, saltar
+                    if ($home === null || $away === null) {
+                        continue;
+                    }
+                    
+                    $forma = '';
+                    $teams = $match['teams'] ?? null;
+                    
+                    if (!$teams || !isset($teams['home']) || !isset($teams['away'])) {
+                        continue;
+                    }
+                    
+                    if ($teams['home']['winner'] === true) {
+                        $forma = $teams['home']['id'] === $match['teams']['home']['id'] ? 'V' : 'D';
+                    } elseif ($teams['away']['winner'] === true) {
+                        $forma = $teams['away']['id'] === $match['teams']['home']['id'] ? 'V' : 'D';
+                    } else {
+                        $forma = 'E';
+                    }
+                    
+                    $form[] = [
+                        'result' => $forma,
+                        'match_date' => $match['fixture']['date'] ?? 'N/A',
+                        'opponent' => $teams['home']['id'] === $match['teams']['home']['id'] ? $teams['away']['name'] : $teams['home']['name'],
+                        'score' => "$home-$away"
+                    ];
+                } catch (\Exception $e) {
+                    Log::error('Error procesando partido reciente: ' . $e->getMessage(), [
+                        'match' => json_encode(array_keys($match))
+                    ]);
+                }
+            }
+        } else {
+            // Formato alternativo (posiblemente de la base de datos)
+            foreach ($matches as $match) {
+                if (isset($match['result'])) {
+                    $form[] = [
+                        'result' => $match['result'],
+                        'match_date' => $match['match_date'] ?? 'N/A',
+                        'opponent' => $match['opponent'] ?? 'Desconocido',
+                        'score' => ($match['goals_for'] ?? '?') . '-' . ($match['goals_against'] ?? '?')
+                    ];
+                }
+            }
+        }
+        
+        // Limitar a los últimos 5 partidos
+        $form = array_slice($form, 0, 5);
+        
+        if (empty($form)) {
+            return "No hay partidos recientes disponibles para mostrar";
+        }
+        
+        // Formatear resultado
+        $resultado = [];
+        foreach ($form as $partido) {
+            $color = $partido['result'] === 'V' ? 'verde' : ($partido['result'] === 'E' ? 'gris' : 'rojo');
+            $resultado[] = "- " . date('d/m/Y', strtotime($partido['match_date'])) . 
+                ": vs " . $partido['opponent'] . 
+                " (" . $partido['score'] . ") - **" . $partido['result'] . "**";
+        }
+        
+        return implode("\n", $resultado);
     }
     
     /**
@@ -913,98 +951,377 @@ class GeminiController extends Controller
      */
     private function formatTeamStats($stats)
     {
+        // Verificar que stats exista y sea un array
         if (empty($stats)) {
+            Log::debug('No hay estadísticas disponibles para formatear');
             return "No hay estadísticas disponibles";
         }
         
-        // Verificar la estructura de los datos y adaptarla
+        // Verificar que stats sea un array
+        if (!is_array($stats)) {
+            Log::error('stats no es un array en formatTeamStats', [
+                'stats_type' => gettype($stats),
+                'stats_value' => substr(is_string($stats) ? $stats : '', 0, 100)
+            ]);
+            return "Error: Formato de estadísticas incorrecto";
+        }
+        
+        // Verificar la estructura de los datos
         Log::debug('Estructura de estadísticas recibida', [
-            'has_team' => isset($stats['team']),
-            'has_fixtures' => isset($stats['fixtures']),
+            'has_team' => isset($stats['team']) ? 'yes' : 'no',
+            'has_history' => isset($stats['history']) ? 'yes' : 'no',
+            'has_currentSeason' => isset($stats['currentSeason']) ? 'yes' : 'no',
+            'has_fixtures' => isset($stats['fixtures']) ? 'yes' : 'no',
             'keys' => array_keys($stats)
         ]);
         
         $formattedStats = "ESTADÍSTICAS DETALLADAS:\n";
         
-        // Si los datos vienen de la API con estructura diferente
-        if (isset($stats['team']) && !isset($stats['fixtures'])) {
-            // Es posible que sea un formato diferente (datos directos de la API)
+        // Diferentes formatos posibles de los datos
+        // 1. Formato almacenado en la base de datos desde team_stats.stats_json (formato completo)
+        if (isset($stats['team'])) {
+            // Información básica del equipo
             $formattedStats .= "- Equipo: " . ($stats['team']['name'] ?? 'N/A') . "\n";
-            
-            if (isset($stats['team']['venue'])) {
-                $formattedStats .= "- Estadio: " . $stats['team']['venue'] . "\n";
-            }
             
             if (isset($stats['team']['founded'])) {
                 $formattedStats .= "- Fundado en: " . $stats['team']['founded'] . "\n";
             }
             
-            // Información básica del equipo
-            if (isset($stats['statistics'])) {
-                $formattedStats .= "\nESTADÍSTICAS DE TEMPORADA:\n";
-                $statistics = $stats['statistics'];
-                
-                if (isset($statistics['matches'])) {
-                    $matches = $statistics['matches'];
-                    $formattedStats .= "- Partidos jugados: " . ($matches['played']['total'] ?? 'N/A') . "\n";
-                    $formattedStats .= "- Victorias: " . ($matches['wins']['total'] ?? 'N/A') . "\n";
-                    $formattedStats .= "- Empates: " . ($matches['draws']['total'] ?? 'N/A') . "\n";
-                    $formattedStats .= "- Derrotas: " . ($matches['loses']['total'] ?? 'N/A') . "\n";
-                }
-                
-                if (isset($statistics['goals'])) {
-                    $goals = $statistics['goals'];
-                    $formattedStats .= "- Goles marcados: " . ($goals['for']['total'] ?? 'N/A') . "\n";
-                    $formattedStats .= "- Goles recibidos: " . ($goals['against']['total'] ?? 'N/A') . "\n";
-                }
+            if (isset($stats['team']['venue'])) {
+                $formattedStats .= "- Estadio: " . $stats['team']['venue'] . "\n";
             }
             
-            return $formattedStats;
+            // Si tenemos datos de historia/rendimiento
+            if (isset($stats['history']) && isset($stats['history']['performance'])) {
+                $performance = $stats['history']['performance'];
+                
+                if (isset($performance['summary'])) {
+                    $summary = $performance['summary'];
+                    $formattedStats .= "\nESTADÍSTICAS GENERALES DE TEMPORADA:\n";
+                    $formattedStats .= "- Partidos jugados: " . ($summary['played'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Victorias: " . ($summary['won'] ?? 'N/A') . " (" . 
+                        (isset($summary['winPercentage']) ? round($summary['winPercentage'], 1) : 'N/A') . "%)\n";
+                    $formattedStats .= "- Empates: " . ($summary['draw'] ?? 'N/A') . " (" . 
+                        (isset($summary['drawPercentage']) ? round($summary['drawPercentage'], 1) : 'N/A') . "%)\n";
+                    $formattedStats .= "- Derrotas: " . ($summary['lost'] ?? 'N/A') . " (" . 
+                        (isset($summary['lossPercentage']) ? round($summary['lossPercentage'], 1) : 'N/A') . "%)\n";
+                    $formattedStats .= "- Goles a favor: " . ($summary['goalsFor'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Goles en contra: " . ($summary['goalsAgainst'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Diferencia de goles: " . ($summary['goalDifference'] ?? 'N/A') . "\n";
+                    
+                    if (isset($summary['cleanSheets'])) {
+                        $formattedStats .= "- Porterías a cero: " . $summary['cleanSheets'] . " (" . 
+                            (isset($summary['cleanSheetPercentage']) ? round($summary['cleanSheetPercentage'], 1) : 'N/A') . "%)\n";
+                    }
+                    
+                    if (isset($summary['failedToScore'])) {
+                        $formattedStats .= "- Partidos sin marcar: " . $summary['failedToScore'] . " (" . 
+                            (isset($summary['failedToScorePercentage']) ? round($summary['failedToScorePercentage'], 1) : 'N/A') . "%)\n";
+                    }
+                }
+                
+                // Promedios
+                if (isset($performance['averages'])) {
+                    $averages = $performance['averages'];
+                    $formattedStats .= "\nPROMEDIOS:\n";
+                    $formattedStats .= "- Goles marcados por partido: " . ($averages['goalsForPerGame'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Goles recibidos por partido: " . ($averages['goalsAgainstPerGame'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Puntos por partido: " . ($averages['pointsPerGame'] ?? 'N/A') . "\n";
+                    
+                    // Separación local/visitante
+                    if (isset($averages['goalsForPerGameHome'])) {
+                        $formattedStats .= "- Goles marcados como local: " . $averages['goalsForPerGameHome'] . " por partido\n";
+                    }
+                    if (isset($averages['goalsAgainstPerGameHome'])) {
+                        $formattedStats .= "- Goles recibidos como local: " . $averages['goalsAgainstPerGameHome'] . " por partido\n";
+                    }
+                    if (isset($averages['goalsForPerGameAway'])) {
+                        $formattedStats .= "- Goles marcados como visitante: " . $averages['goalsForPerGameAway'] . " por partido\n";
+                    }
+                    if (isset($averages['goalsAgainstPerGameAway'])) {
+                        $formattedStats .= "- Goles recibidos como visitante: " . $averages['goalsAgainstPerGameAway'] . " por partido\n";
+                    }
+                }
+                
+                // Estadísticas como local
+                if (isset($performance['home'])) {
+                    $home = $performance['home'];
+                    $formattedStats .= "\nCOMO LOCAL:\n";
+                    $formattedStats .= "- Partidos: " . ($home['played'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Victorias: " . ($home['won'] ?? 'N/A') . " (" . 
+                        (isset($home['winPercentage']) ? round($home['winPercentage'], 1) : 'N/A') . "%)\n";
+                    $formattedStats .= "- Empates: " . ($home['draw'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Derrotas: " . ($home['lost'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Goles a favor: " . ($home['goalsFor'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Goles en contra: " . ($home['goalsAgainst'] ?? 'N/A') . "\n";
+                }
+                
+                // Estadísticas como visitante
+                if (isset($performance['away'])) {
+                    $away = $performance['away'];
+                    $formattedStats .= "\nCOMO VISITANTE:\n";
+                    $formattedStats .= "- Partidos: " . ($away['played'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Victorias: " . ($away['won'] ?? 'N/A') . " (" . 
+                        (isset($away['winPercentage']) ? round($away['winPercentage'], 1) : 'N/A') . "%)\n";
+                    $formattedStats .= "- Empates: " . ($away['draw'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Derrotas: " . ($away['lost'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Goles a favor: " . ($away['goalsFor'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Goles en contra: " . ($away['goalsAgainst'] ?? 'N/A') . "\n";
+                }
+                
+                // Rachas
+                if (isset($performance['streaks'])) {
+                    $streaks = $performance['streaks'];
+                    $formattedStats .= "\nRACHAS:\n";
+                    $formattedStats .= "- Racha actual: " . ($streaks['current'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Racha más larga de victorias: " . ($streaks['longestWin'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Racha más larga de derrotas: " . ($streaks['longestLose'] ?? 'N/A') . "\n";
+                }
+                
+                // Forma reciente
+                if (isset($performance['form']) && isset($performance['form']['string']) && $performance['form']['string']) {
+                    $formattedStats .= "\nFORMA RECIENTE: " . $performance['form']['string'] . "\n";
+                }
+                
+                // Récords y mayores resultados
+                if (isset($performance['records'])) {
+                    $records = $performance['records'];
+                    $formattedStats .= "\nRÉCORDS:\n";
+                    
+                    if (isset($records['biggestWin'])) {
+                        $formattedStats .= "- Mayor victoria: " . 
+                            (isset($records['biggestWin']['score']) ? "por " . $records['biggestWin']['score'] . " goles" : 'N/A');
+                        
+                        // Intentar añadir detalles del partido si están disponibles
+                        if (isset($records['biggestWin']['match'])) {
+                            $match = $records['biggestWin']['match'];
+                            $formattedStats .= " (vs " . 
+                                (isset($match['awayTeam']['name']) ? $match['awayTeam']['name'] : 'Equipo desconocido') . 
+                                ", " . (isset($match['score']['fullTime']['home']) && isset($match['score']['fullTime']['away']) ? 
+                                $match['score']['fullTime']['home'] . "-" . $match['score']['fullTime']['away'] : 'Resultado desconocido') . ")";
+                        }
+                        $formattedStats .= "\n";
+                    }
+                    
+                    if (isset($records['biggestDefeat'])) {
+                        $formattedStats .= "- Mayor derrota: " . 
+                            (isset($records['biggestDefeat']['score']) ? "por " . $records['biggestDefeat']['score'] . " goles" : 'N/A');
+                        
+                        // Intentar añadir detalles del partido si están disponibles
+                        if (isset($records['biggestDefeat']['match'])) {
+                            $match = $records['biggestDefeat']['match'];
+                            $formattedStats .= " (vs " . 
+                                (isset($match['homeTeam']['name']) ? $match['homeTeam']['name'] : 'Equipo desconocido') . 
+                                ", " . (isset($match['score']['fullTime']['home']) && isset($match['score']['fullTime']['away']) ? 
+                                $match['score']['fullTime']['home'] . "-" . $match['score']['fullTime']['away'] : 'Resultado desconocido') . ")";
+                        }
+                        $formattedStats .= "\n";
+                    }
+                }
+                
+                // Rendimiento por mes, si está disponible
+                if (isset($performance['by_month']) && !empty($performance['by_month'])) {
+                    $formattedStats .= "\nRENDIMIENTO POR MES:\n";
+                    $months = [
+                        '01' => 'Enero', '02' => 'Febrero', '03' => 'Marzo', '04' => 'Abril',
+                        '05' => 'Mayo', '06' => 'Junio', '07' => 'Julio', '08' => 'Agosto',
+                        '09' => 'Septiembre', '10' => 'Octubre', '11' => 'Noviembre', '12' => 'Diciembre'
+                    ];
+                    
+                    foreach ($performance['by_month'] as $yearMonth => $monthData) {
+                        // Extraer año y mes (formato "YYYY-MM")
+                        if (preg_match('/^(\d{4})-(\d{2})$/', $yearMonth, $matches)) {
+                            $year = $matches[1];
+                            $month = $matches[2];
+                            $monthName = $months[$month] ?? $month;
+                            
+                            $formattedStats .= "- " . $monthName . " " . $year . ": ";
+                            if (isset($monthData['played'])) {
+                                $formattedStats .= $monthData['played'] . " partidos, ";
+                            }
+                            if (isset($monthData['won']) && isset($monthData['draw']) && isset($monthData['lost'])) {
+                                $formattedStats .= $monthData['won'] . "V-" . $monthData['draw'] . "E-" . $monthData['lost'] . "D, ";
+                            }
+                            if (isset($monthData['goalsFor']) && isset($monthData['goalsAgainst'])) {
+                                $formattedStats .= $monthData['goalsFor'] . " goles a favor, " . $monthData['goalsAgainst'] . " en contra";
+                            }
+                            $formattedStats .= "\n";
+                        }
+                    }
+                }
+            }
         }
         
-        // Formato original
-        if (isset($stats['fixtures'])) {
+        // 2. Formato de estadísticas de temporada actual
+        if (isset($stats['currentSeason']) && isset($stats['currentSeason']['stats'])) {
+            $seasonStats = $stats['currentSeason']['stats'];
+            
+            if (!isset($stats['history'])) { // Solo mostrar si no ya mostramos la sección history
+                if (isset($seasonStats['summary'])) {
+                    $summary = $seasonStats['summary'];
+                    $formattedStats .= "\nESTADÍSTICAS DE TEMPORADA ACTUAL:\n";
+                    $formattedStats .= "- Partidos jugados: " . ($summary['played'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Victorias: " . ($summary['won'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Empates: " . ($summary['draw'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Derrotas: " . ($summary['lost'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Goles a favor: " . ($summary['goalsFor'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Goles en contra: " . ($summary['goalsAgainst'] ?? 'N/A') . "\n";
+                    
+                    if (isset($summary['cleanSheets'])) {
+                        $formattedStats .= "- Porterías a cero: " . $summary['cleanSheets'] . "\n";
+                    }
+                    
+                    if (isset($summary['failedToScore'])) {
+                        $formattedStats .= "- Partidos sin marcar: " . $summary['failedToScore'] . "\n";
+                    }
+                }
+                
+                // Estadísticas en casa
+                if (isset($seasonStats['home'])) {
+                    $home = $seasonStats['home'];
+                    $formattedStats .= "\nCOMO LOCAL:\n";
+                    $formattedStats .= "- Partidos: " . ($home['played'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Victorias: " . ($home['won'] ?? 'N/A') . " (" . 
+                        (isset($home['played']) && $home['played'] > 0 ? round(($home['won'] / $home['played']) * 100, 1) : 'N/A') . "%)\n";
+                    $formattedStats .= "- Goles a favor: " . ($home['goalsFor'] ?? 'N/A') . " (" . 
+                        (isset($home['played']) && $home['played'] > 0 ? round(($home['goalsFor'] / $home['played']), 2) : 'N/A') . " por partido)\n";
+                    $formattedStats .= "- Goles en contra: " . ($home['goalsAgainst'] ?? 'N/A') . "\n";
+                }
+                
+                // Estadísticas fuera de casa
+                if (isset($seasonStats['away'])) {
+                    $away = $seasonStats['away'];
+                    $formattedStats .= "\nCOMO VISITANTE:\n";
+                    $formattedStats .= "- Partidos: " . ($away['played'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Victorias: " . ($away['won'] ?? 'N/A') . " (" . 
+                        (isset($away['played']) && $away['played'] > 0 ? round(($away['won'] / $away['played']) * 100, 1) : 'N/A') . "%)\n";
+                    $formattedStats .= "- Goles a favor: " . ($away['goalsFor'] ?? 'N/A') . " (" . 
+                        (isset($away['played']) && $away['played'] > 0 ? round(($away['goalsFor'] / $away['played']), 2) : 'N/A') . " por partido)\n";
+                    $formattedStats .= "- Goles en contra: " . ($away['goalsAgainst'] ?? 'N/A') . "\n";
+                }
+                
+                // Rachas
+                if (isset($seasonStats['streaks'])) {
+                    $streaks = $seasonStats['streaks'];
+                    $formattedStats .= "\nRACHAS:\n";
+                    $formattedStats .= "- Racha actual: " . ($streaks['current'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Racha más larga de victorias: " . ($streaks['longestWin'] ?? 'N/A') . "\n";
+                    $formattedStats .= "- Racha más larga de derrotas: " . ($streaks['longestLose'] ?? 'N/A') . "\n";
+                }
+            }
+        }
+        
+        // 3. Formato de estadísticas de partidos (fixtures) - formato alternativo
+        if (isset($stats['fixtures']) && !isset($stats['history']) && !isset($stats['currentSeason'])) {
             $fixtures = $stats['fixtures'];
+            $formattedStats .= "\nESTADÍSTICAS DE PARTIDOS:\n";
             $formattedStats .= "- Partidos jugados: " . ($fixtures['played']['total'] ?? 'N/A') . "\n";
-            $formattedStats .= "- Victorias: " . ($fixtures['wins']['total'] ?? 'N/A') . 
-                " (Local: " . ($fixtures['wins']['home'] ?? 'N/A') . 
+            $formattedStats .= "- Victorias: " . ($fixtures['wins']['total'] ?? 'N/A') . " - " . 
+                (isset($fixtures['played']['total']) && $fixtures['played']['total'] > 0 
+                    ? round(($fixtures['wins']['total'] / $fixtures['played']['total']) * 100, 1) : 'N/A') . "%\n";
+            $formattedStats .= "  (Local: " . ($fixtures['wins']['home'] ?? 'N/A') . 
                 ", Visitante: " . ($fixtures['wins']['away'] ?? 'N/A') . ")\n";
-            $formattedStats .= "- Empates: " . ($fixtures['draws']['total'] ?? 'N/A') . "\n";
-            $formattedStats .= "- Derrotas: " . ($fixtures['loses']['total'] ?? 'N/A') . "\n";
+            
+            $formattedStats .= "- Empates: " . ($fixtures['draws']['total'] ?? 'N/A') . " - " . 
+                (isset($fixtures['played']['total']) && $fixtures['played']['total'] > 0 
+                    ? round(($fixtures['draws']['total'] / $fixtures['played']['total']) * 100, 1) : 'N/A') . "%\n";
+                    
+            $formattedStats .= "- Derrotas: " . ($fixtures['loses']['total'] ?? 'N/A') . " - " . 
+                (isset($fixtures['played']['total']) && $fixtures['played']['total'] > 0 
+                    ? round(($fixtures['loses']['total'] / $fixtures['played']['total']) * 100, 1) : 'N/A') . "%\n";
         }
         
-        if (isset($stats['goals'])) {
+        // 4. Información de goles (formato alternativo)
+        if (isset($stats['goals']) && !isset($stats['history']) && !isset($stats['currentSeason'])) {
             $goals = $stats['goals'];
+            $formattedStats .= "\nGOLES:\n";
             
             if (isset($goals['for']['total'])) {
-                $formattedStats .= "- Goles marcados: " . ($goals['for']['total']['total'] ?? 'N/A') . 
-                    " (Local: " . ($goals['for']['total']['home'] ?? 'N/A') . 
+                $formattedStats .= "- Goles marcados: " . ($goals['for']['total']['total'] ?? 'N/A') . "\n";
+                $formattedStats .= "  (Local: " . ($goals['for']['total']['home'] ?? 'N/A') . 
                     ", Visitante: " . ($goals['for']['total']['away'] ?? 'N/A') . ")\n";
+            } elseif (isset($goals['for'])) {
+                $formattedStats .= "- Goles marcados: " . ($goals['for'] ?? 'N/A') . "\n";
             }
             
             if (isset($goals['against']['total'])) {
-                $formattedStats .= "- Goles recibidos: " . ($goals['against']['total']['total'] ?? 'N/A') . 
-                    " (Local: " . ($goals['against']['total']['home'] ?? 'N/A') . 
+                $formattedStats .= "- Goles recibidos: " . ($goals['against']['total']['total'] ?? 'N/A') . "\n";
+                $formattedStats .= "  (Local: " . ($goals['against']['total']['home'] ?? 'N/A') . 
                     ", Visitante: " . ($goals['against']['total']['away'] ?? 'N/A') . ")\n";
+            } elseif (isset($goals['against'])) {
+                $formattedStats .= "- Goles recibidos: " . ($goals['against'] ?? 'N/A') . "\n";
+            }
+            
+            // Promedio de goles por partido
+            if (isset($stats['fixtures']) && isset($stats['fixtures']['played']['total']) && $stats['fixtures']['played']['total'] > 0) {
+                $played = $stats['fixtures']['played']['total'];
+                $formattedStats .= "- Promedio de goles a favor: " . 
+                    (isset($goals['for']['total']['total']) ? round($goals['for']['total']['total'] / $played, 2) : 'N/A') . " por partido\n";
+                $formattedStats .= "- Promedio de goles en contra: " . 
+                    (isset($goals['against']['total']['total']) ? round($goals['against']['total']['total'] / $played, 2) : 'N/A') . " por partido\n";
             }
         }
         
-        if (isset($stats['clean_sheet'])) {
-            $formattedStats .= "- Porterías a cero: " . ($stats['clean_sheet']['total'] ?? 'N/A') . "\n";
+        // 5. Porterías a cero y partidos sin marcar (formato alternativo)
+        if (isset($stats['clean_sheet']) && !isset($stats['history']) && !isset($stats['currentSeason'])) {
+            $formattedStats .= "\nDEFENSA Y ATAQUE:\n";
+            $formattedStats .= "- Porterías a cero: " . ($stats['clean_sheet']['total'] ?? 'N/A');
+            
+            if (isset($stats['fixtures']) && isset($stats['fixtures']['played']['total']) && $stats['fixtures']['played']['total'] > 0) {
+                $played = $stats['fixtures']['played']['total'];
+                $formattedStats .= " (" . round(($stats['clean_sheet']['total'] / $played) * 100, 1) . "% de los partidos)\n";
+            } else {
+                $formattedStats .= "\n";
+            }
         }
         
-        if (isset($stats['failed_to_score'])) {
-            $formattedStats .= "- Partidos sin marcar: " . ($stats['failed_to_score']['total'] ?? 'N/A') . "\n";
+        if (isset($stats['failed_to_score']) && !isset($stats['history']) && !isset($stats['currentSeason'])) {
+            if (!strpos($formattedStats, "DEFENSA Y ATAQUE")) {
+                $formattedStats .= "\nDEFENSA Y ATAQUE:\n";
+            }
+            
+            $formattedStats .= "- Partidos sin marcar: " . ($stats['failed_to_score']['total'] ?? 'N/A');
+            
+            if (isset($stats['fixtures']) && isset($stats['fixtures']['played']['total']) && $stats['fixtures']['played']['total'] > 0) {
+                $played = $stats['fixtures']['played']['total'];
+                $formattedStats .= " (" . round(($stats['failed_to_score']['total'] / $played) * 100, 1) . "% de los partidos)\n";
+            } else {
+                $formattedStats .= "\n";
+            }
         }
         
-        if (isset($stats['biggest'])) {
+        // 6. Récords y mayores resultados (formato alternativo)
+        if (isset($stats['biggest']) && !isset($stats['history']) && !isset($stats['currentSeason'])) {
             $biggest = $stats['biggest'];
-            $formattedStats .= "- Mayor victoria: " . 
-                (isset($biggest['wins']['home']) ? "Local " . $biggest['wins']['home'] : 'N/A') . ", " .
-                (isset($biggest['wins']['away']) ? "Visitante " . $biggest['wins']['away'] : 'N/A') . "\n";
-            $formattedStats .= "- Mayor derrota: " . 
-                (isset($biggest['loses']['home']) ? "Local " . $biggest['loses']['home'] : 'N/A') . ", " .
-                (isset($biggest['loses']['away']) ? "Visitante " . $biggest['loses']['away'] : 'N/A') . "\n";
+            $formattedStats .= "\nRÉCORDS:\n";
+            
+            if (isset($biggest['wins'])) {
+                $formattedStats .= "- Mayor victoria: ";
+                if (isset($biggest['wins']['home'])) {
+                    $formattedStats .= "Local " . $biggest['wins']['home'];
+                }
+                if (isset($biggest['wins']['away'])) {
+                    if (isset($biggest['wins']['home'])) {
+                        $formattedStats .= ", ";
+                    }
+                    $formattedStats .= "Visitante " . $biggest['wins']['away'];
+                }
+                $formattedStats .= "\n";
+            }
+            
+            if (isset($biggest['loses'])) {
+                $formattedStats .= "- Mayor derrota: ";
+                if (isset($biggest['loses']['home'])) {
+                    $formattedStats .= "Local " . $biggest['loses']['home'];
+                }
+                if (isset($biggest['loses']['away'])) {
+                    if (isset($biggest['loses']['home'])) {
+                        $formattedStats .= ", ";
+                    }
+                    $formattedStats .= "Visitante " . $biggest['loses']['away'];
+                }
+                $formattedStats .= "\n";
+            }
         }
         
         return $formattedStats;
@@ -1016,38 +1333,80 @@ class GeminiController extends Controller
     private function formatHeadToHead($matches)
     {
         if (empty($matches)) {
+            Log::debug('No hay enfrentamientos directos');
             return "No hay enfrentamientos directos recientes";
         }
         
-        $resultado = [
-            'local' => 0,
-            'visitante' => 0,
-            'empates' => 0,
-            'goles_local' => 0,
-            'goles_visitante' => 0
-        ];
-        
-        $h2hFormatted = "Últimos " . count($matches) . " enfrentamientos directos:\n";
-        
-        foreach ($matches as $match) {
-            $h2hFormatted .= "- {$match['date']}: {$match['home_team']} {$match['home_goals']}-{$match['away_goals']} {$match['away_team']}\n";
-            
-            if ($match['winner'] === 'local') {
-                $resultado['local']++;
-            } elseif ($match['winner'] === 'visitante') {
-                $resultado['visitante']++;
-            } else {
-                $resultado['empates']++;
-            }
-            
-            $resultado['goles_local'] += $match['home_goals'];
-            $resultado['goles_visitante'] += $match['away_goals'];
+        // Verificar que matches sea un array
+        if (!is_array($matches)) {
+            Log::error('matches no es un array en formatHeadToHead', [
+                'matches_type' => gettype($matches),
+                'matches_value' => substr(is_string($matches) ? $matches : '', 0, 100)
+            ]);
+            return "Error: Formato de enfrentamientos incorrecto";
         }
         
-        $h2hFormatted .= "\nBalance H2H: {$resultado['local']} victorias local, {$resultado['empates']} empates, {$resultado['visitante']} victorias visitante\n";
-        $h2hFormatted .= "Promedio de goles: " . round($resultado['goles_local'] / count($matches), 2) . " local, " . 
-                          round($resultado['goles_visitante'] / count($matches), 2) . " visitante";
+        // Limitar a los últimos 5 partidos
+        $matches = array_slice($matches, 0, 5);
         
-        return $h2hFormatted;
+        // Identificar estructura de datos
+        $sampleMatch = reset($matches);
+        $isApiFormat = isset($sampleMatch['teams']);
+        
+        Log::debug('Formato de H2H detectado', [
+            'is_api_format' => $isApiFormat ? 'yes' : 'no',
+            'sample_keys' => is_array($sampleMatch) ? array_keys($sampleMatch) : 'no_sample'
+        ]);
+        
+        $formattedMatches = [];
+        
+        if ($isApiFormat) {
+            // Formato desde la API
+            foreach ($matches as $match) {
+                try {
+                    // Verificar si el partido ya terminó
+                    if (!isset($match['fixture']['status']['short']) || $match['fixture']['status']['short'] !== 'FT') {
+                        continue; // Saltar partidos que no han terminado
+                    }
+                    
+                    $goals = $match['goals'] ?? null;
+                    if (!$goals || !isset($goals['home']) || !isset($goals['away'])) {
+                        continue;
+                    }
+                    
+                    $teams = $match['teams'] ?? null;
+                    if (!$teams || !isset($teams['home']['name']) || !isset($teams['away']['name'])) {
+                        continue;
+                    }
+                    
+                    $matchDate = isset($match['fixture']['date']) ? 
+                        date('d/m/Y', strtotime($match['fixture']['date'])) : 'N/A';
+                    
+                    $formattedMatches[] = "- " . $matchDate . ": " . 
+                        $teams['home']['name'] . " " . $goals['home'] . " - " . 
+                        $goals['away'] . " " . $teams['away']['name'];
+                } catch (\Exception $e) {
+                    Log::error('Error procesando H2H: ' . $e->getMessage(), [
+                        'match' => json_encode(array_keys($match))
+                    ]);
+                }
+            }
+        } else {
+            // Formato alternativo
+            foreach ($matches as $match) {
+                if (isset($match['date']) && isset($match['home_team']) && isset($match['away_team'])) {
+                    $matchDate = date('d/m/Y', strtotime($match['date']));
+                    $formattedMatches[] = "- " . $matchDate . ": " . 
+                        $match['home_team'] . " " . ($match['home_goals'] ?? '?') . " - " . 
+                        ($match['away_goals'] ?? '?') . " " . $match['away_team'];
+                }
+            }
+        }
+        
+        if (empty($formattedMatches)) {
+            return "No hay enfrentamientos directos recientes para mostrar";
+        }
+        
+        return implode("\n", $formattedMatches);
     }
 } 

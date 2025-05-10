@@ -773,4 +773,109 @@ class FootballDataService
 
         return $this->makeRequest($endpoint, $params);
     }
+
+    /**
+     * Obtiene los partidos recientes de un equipo
+     * 
+     * @param int $teamId ID del equipo
+     * @param int $limit Límite de partidos a obtener (default 5)
+     * @return array|null
+     */
+    public function getTeamRecentMatches($teamId, $limit = 10)
+    {
+        Log::info('Obteniendo partidos recientes del equipo', ['team_id' => $teamId, 'limit' => $limit]);
+        
+        try {
+            $url = "https://v3.football.api-sports.io/fixtures";
+            $params = [
+                'team' => $teamId,
+                'last' => $limit,
+                'status' => 'FT'  // Solo partidos terminados
+            ];
+            
+            $response = Http::withHeaders([
+                'x-rapidapi-host' => 'v3.football.api-sports.io',
+                'x-rapidapi-key' => config('services.football_api.key')
+            ])->get($url, $params);
+            
+            if ($response->successful()) {
+                Log::info('Partidos recientes obtenidos correctamente', [
+                    'team_id' => $teamId,
+                    'count' => $response->json()['results'] ?? 0
+                ]);
+                return $response->json();
+            }
+            
+            Log::error('Error al obtener partidos recientes', [
+                'team_id' => $teamId,
+                'status' => $response->status(),
+                'body' => $response->body()
+            ]);
+            
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Excepción al obtener partidos recientes', [
+                'team_id' => $teamId,
+                'message' => $e->getMessage()
+            ]);
+            
+            return null;
+        }
+    }
+    
+    /**
+     * Obtiene los enfrentamientos directos entre dos equipos
+     * 
+     * @param int $team1Id ID del primer equipo
+     * @param int $team2Id ID del segundo equipo
+     * @param int $limit Límite de partidos a obtener (default 10)
+     * @return array|null
+     */
+    public function getHeadToHead($team1Id, $team2Id, $limit = 10)
+    {
+        Log::info('Obteniendo enfrentamientos directos', [
+            'team1_id' => $team1Id,
+            'team2_id' => $team2Id,
+            'limit' => $limit
+        ]);
+        
+        try {
+            $url = "https://v3.football.api-sports.io/fixtures/headtohead";
+            $params = [
+                'h2h' => "{$team1Id}-{$team2Id}",
+                'last' => $limit
+            ];
+            
+            $response = Http::withHeaders([
+                'x-rapidapi-host' => 'v3.football.api-sports.io',
+                'x-rapidapi-key' => config('services.football_api.key')
+            ])->get($url, $params);
+            
+            if ($response->successful()) {
+                Log::info('Enfrentamientos directos obtenidos correctamente', [
+                    'team1_id' => $team1Id,
+                    'team2_id' => $team2Id,
+                    'count' => $response->json()['results'] ?? 0
+                ]);
+                return $response->json();
+            }
+            
+            Log::error('Error al obtener enfrentamientos directos', [
+                'team1_id' => $team1Id,
+                'team2_id' => $team2Id,
+                'status' => $response->status(),
+                'body' => $response->body()
+            ]);
+            
+            return null;
+        } catch (\Exception $e) {
+            Log::error('Excepción al obtener enfrentamientos directos', [
+                'team1_id' => $team1Id,
+                'team2_id' => $team2Id,
+                'message' => $e->getMessage()
+            ]);
+            
+            return null;
+        }
+    }
 } 
