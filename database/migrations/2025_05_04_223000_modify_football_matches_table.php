@@ -11,47 +11,56 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Primero eliminar la tabla anterior si existe
-        Schema::dropIfExists('football_matches');
+        Schema::dropIfExists('football_matches'); // Eliminar si existe para empezar de cero
         
-        // Crear tabla con estructura simplificada
         Schema::create('football_matches', function (Blueprint $table) {
             $table->id();
             
-            // Datos de la API
+            $table->unsignedBigInteger('sport_id')->nullable();
+            $table->foreign('sport_id')->references('id')->on('sports')->onDelete('set null');
+
+            $table->unsignedBigInteger('league_id')->nullable();
+            $table->foreign('league_id')->references('id')->on('leagues')->onDelete('set null');
+
+            $table->unsignedBigInteger('season_id')->nullable();
+            $table->foreign('season_id')->references('id')->on('seasons')->onDelete('set null');
+            
+            $table->unsignedBigInteger('home_team_id')->nullable();
+            $table->foreign('home_team_id')->references('id')->on('teams')->onDelete('set null');
+
+            $table->unsignedBigInteger('away_team_id')->nullable();
+            $table->foreign('away_team_id')->references('id')->on('teams')->onDelete('set null');
+            
             $table->integer('api_fixture_id')->nullable()->unique()->comment('ID único del partido en la API');
-            
-            // Datos de liga simplificados (sin relación)
-            $table->string('league_name')->nullable()->comment('Nombre de la liga');
-            $table->string('league_logo')->nullable()->comment('URL del logo de la liga');
-            $table->string('league_country')->nullable()->comment('País de la liga');
-            
-            // Datos de equipos simplificados (sin relación)
-            $table->string('home_team_name')->nullable()->comment('Nombre del equipo local');
-            $table->string('home_team_logo')->nullable()->comment('URL del logo del equipo local');
-            $table->string('away_team_name')->nullable()->comment('Nombre del equipo visitante');
-            $table->string('away_team_logo')->nullable()->comment('URL del logo del equipo visitante');
-            
-            // Datos del partido
             $table->dateTime('match_date')->comment('Fecha y hora programada del partido');
-            $table->string('status', 50)->default('Not Started')->comment('Estado del partido (ej: Not Started, In Play, Finished)');
-            $table->integer('home_goals')->nullable()->comment('Goles del equipo local');
-            $table->integer('away_goals')->nullable()->comment('Goles del equipo visitante');
+            $table->string('status', 50)->default('scheduled')->comment('Estado del partido');
+            $table->string('round')->nullable()->comment('Jornada o ronda del partido');
             $table->string('venue')->nullable()->comment('Estadio/sede del partido');
+            $table->string('referee')->nullable()->comment('Árbitro del partido');
+            
+            $table->integer('home_goals')->nullable()->comment('Goles del equipo local (tiempo completo)');
+            $table->integer('away_goals')->nullable()->comment('Goles del equipo visitante (tiempo completo)');
+            $table->integer('home_halftime_goals')->nullable()->comment('Goles del local al medio tiempo');
+            $table->integer('away_halftime_goals')->nullable()->comment('Goles del visitante al medio tiempo');
+            // No necesitamos home_fulltime_goals y away_fulltime_goals si home_goals/away_goals ya representan el tiempo completo.
+
             $table->integer('elapsed_time')->nullable()->comment('Minutos transcurridos si el partido está en juego');
             
-            // Datos JSON
             $table->json('statistics')->nullable()->comment('Estadísticas del partido en formato JSON');
             $table->json('events')->nullable()->comment('Eventos del partido (goles, tarjetas, etc.) en formato JSON');
             $table->json('lineups')->nullable()->comment('Alineaciones de los equipos en formato JSON');
+            $table->json('metadata')->nullable()->comment('Todos los datos originales de la API para este fixture');
             
-            // Campos de utilidad
             $table->boolean('is_analyzed')->default(false)->comment('Indica si el partido ha sido analizado');
             $table->timestamps();
             
             // Índices
             $table->index('match_date');
             $table->index('status');
+            $table->index('home_team_id');
+            $table->index('away_team_id');
+            $table->index('league_id');
+            $table->index('season_id');
         });
     }
 

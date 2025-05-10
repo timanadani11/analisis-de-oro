@@ -116,9 +116,17 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/subscriptions', [AdminController::class, 'subscriptions'])->name('subscriptions');
         Route::get('/api', [AdminController::class, 'api'])->name('api');
         
+        // Gestión de estadísticas de equipos
+        Route::get('/team-stats', [App\Http\Controllers\Admin\TeamStatsController::class, 'index'])->name('team-stats.index');
+        Route::post('/team-stats/sync-all', [App\Http\Controllers\Admin\TeamStatsController::class, 'syncAll'])->name('team-stats.sync-all');
+        Route::post('/team-stats/sync/{id}', [App\Http\Controllers\Admin\TeamStatsController::class, 'syncTeam'])->name('team-stats.sync');
+        Route::get('/team-stats/{id}', [App\Http\Controllers\Admin\TeamStatsController::class, 'show'])->name('team-stats.show');
+        Route::delete('/team-stats/{id}', [App\Http\Controllers\Admin\TeamStatsController::class, 'destroy'])->name('team-stats.destroy');
+        
         // Rutas dinámicas para la API de fútbol (panel de admin)
         Route::get('/api/action/test-connection', [AdminController::class, 'testApiConnection']);
         Route::get('/api/action/fetch-today-matches', [AdminController::class, 'fetchTodayMatches']);
+        Route::get('/api/action/fetch-matches-by-date', [AdminController::class, 'fetchMatchesByDate']);
         Route::get('/api/action/sync-leagues', [AdminController::class, 'syncLeagues']);
         Route::get('/api/action/sync-teams', [AdminController::class, 'syncTeams']);
         Route::post('/api/action/save-matches', [AdminController::class, 'saveMatches']);

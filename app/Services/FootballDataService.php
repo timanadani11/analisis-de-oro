@@ -704,4 +704,73 @@ class FootballDataService
             'headToHead' => $h2h
         ];
     }
+
+    /**
+     * Obtiene información detallada de un equipo específico
+     * 
+     * @param int $teamId ID del equipo
+     * @return array|null Datos detallados del equipo o null si hay error
+     */
+    public function getTeamDetails($teamId)
+    {
+        try {
+            Log::info('Obteniendo detalles del equipo', ['team_id' => $teamId]);
+            
+            $response = Http::withHeaders([
+                'X-Auth-Token' => $this->apiKey,
+            ])->get("{$this->baseUrl}/teams/{$teamId}");
+            
+            if ($response->successful()) {
+                $data = $response->json();
+                Log::info('Datos del equipo obtenidos correctamente', ['team_id' => $teamId]);
+                return $data;
+            } else {
+                Log::error('Error al obtener datos del equipo', [
+                    'team_id' => $teamId,
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
+                return null;
+            }
+        } catch (\Exception $e) {
+            Log::error('Excepción al obtener datos del equipo', [
+                'team_id' => $teamId,
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Obtiene los partidos de una competición específica.
+     *
+     * @param string $competitionApiId El ID de la competición en la API.
+     * @param string|null $season El año de la temporada (ej: "2023").
+     * @param string|null $dateFrom Fecha desde (ej: "2023-08-01").
+     * @param string|null $dateTo Fecha hasta (ej: "2024-05-30").
+     * @return array|null
+     */
+    public function getMatchesByCompetition(string $competitionApiId, ?string $season = null, ?string $dateFrom = null, ?string $dateTo = null)
+    {
+        $endpoint = "competitions/{$competitionApiId}/matches";
+        $params = [];
+
+        if ($season) {
+            $params['season'] = $season;
+        }
+        if ($dateFrom) {
+            $params['dateFrom'] = $dateFrom;
+        }
+        if ($dateTo) {
+            $params['dateTo'] = $dateTo;
+        }
+
+        Log::info('Obteniendo partidos por competición', [
+            'competition_api_id' => $competitionApiId,
+            'params' => $params
+        ]);
+
+        return $this->makeRequest($endpoint, $params);
+    }
 } 

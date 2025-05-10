@@ -15,20 +15,69 @@ class GeminiController extends Controller
 {
     public function testGemini()
     {
-        $apiKey = env('GEMINI_API_KEY');
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={$apiKey}";
+        try {
+            $apiKey = env('GEMINI_API_KEY');
+            
+            if (empty($apiKey)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No se encontró la clave API de Gemini en el archivo .env',
+                    'env_api_key' => 'No configurada'
+                ]);
+            }
+            
+            Log::info('Probando API de Gemini', ['api_key_length' => strlen($apiKey)]);
+            
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={$apiKey}";
 
-        $response = Http::post($url, [
-            "contents" => [
-                [
-                    "parts" => [
-                        ["text" => "Explícame cómo funciona la inteligencia artificial"]
+            $response = Http::timeout(30)->post($url, [
+                "contents" => [
+                    [
+                        "parts" => [
+                            ["text" => "Escribe solo una frase corta sobre fútbol"]
+                        ]
                     ]
                 ]
-            ]
-        ]);
+            ]);
+            
+            if (!$response->successful()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error en la respuesta de la API',
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                    'env_api_key_length' => strlen($apiKey)
+                ]);
+            }
 
-        return $response->json();
+            $responseData = $response->json();
+            
+            if (!isset($responseData['candidates']) || 
+                !isset($responseData['candidates'][0]['content']) ||
+                !isset($responseData['candidates'][0]['content']['parts']) ||
+                !isset($responseData['candidates'][0]['content']['parts'][0]['text'])) {
+                
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Respuesta con formato inesperado',
+                    'response' => $responseData,
+                    'env_api_key_length' => strlen($apiKey)
+                ]);
+            }
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'API de Gemini funcionando correctamente',
+                'text' => $responseData['candidates'][0]['content']['parts'][0]['text'],
+                'env_api_key_length' => strlen($apiKey)
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al probar la API de Gemini: ' . $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+        }
     }
 
     public function analizarPartido(Request $request)
@@ -618,113 +667,200 @@ class GeminiController extends Controller
      */
     private function generarAnalisisIA($homeTeam, $awayTeam, $matchDate, $venue, $statsData)
     {
-        // Verificar si tenemos estadísticas
-        $homeHasStats = !empty($statsData['home']['stats']);
-        $awayHasStats = !empty($statsData['away']['stats']);
-        $hasH2h = !empty($statsData['head_to_head']);
-        
-        Log::debug('Datos disponibles para análisis', [
-            'home_has_stats' => $homeHasStats,
-            'away_has_stats' => $awayHasStats,
-            'has_h2h' => $hasH2h
-        ]);
-        
-        // Formatear datos para el prompt
-        $homeForm = $this->formatTeamForm($statsData['home']['recent_matches'] ?? []);
-        $awayForm = $this->formatTeamForm($statsData['away']['recent_matches'] ?? []);
-        $h2hData = $this->formatHeadToHead($statsData['head_to_head'] ?? []);
-        
-        // Estadísticas adicionales
-        $homeStats = $this->formatTeamStats($statsData['home']['stats'] ?? null);
-        $awayStats = $this->formatTeamStats($statsData['away']['stats'] ?? null);
-        
-        // Crear prompt mejorado
-        $prompt = "Análisis de partido de fútbol: $homeTeam vs. $awayTeam\n\n" .
-            "Fecha y hora: $matchDate\n" .
-            "Estadio: $venue\n\n";
-        
-        // Añadir información sobre disponibilidad de datos
-        if (!$homeHasStats || !$awayHasStats) {
-            $prompt .= "NOTA: ⚠️ Hay datos estadísticos limitados disponibles para este análisis. " . 
-                "La predicción se basará en los datos disponibles y conocimiento general sobre los equipos. " .
-                "Los resultados deben considerarse con precaución.\n\n";
-        }
+        try {
+            // Verificar si tenemos estadísticas
+            $homeHasStats = !empty($statsData['home']['stats']);
+            $awayHasStats = !empty($statsData['away']['stats']);
+            $hasH2h = !empty($statsData['head_to_head']);
             
-        $prompt .= "DATOS ESTADÍSTICOS DEL EQUIPO LOCAL: $homeTeam\n" .
-            "-------------------------------------------\n" .
-            "Forma reciente: $homeForm\n" .
-            "$homeStats\n\n" .
+            Log::debug('Datos disponibles para análisis', [
+                'home_has_stats' => $homeHasStats,
+                'away_has_stats' => $awayHasStats,
+                'has_h2h' => $hasH2h
+            ]);
             
-            "DATOS ESTADÍSTICOS DEL EQUIPO VISITANTE: $awayTeam\n" .
-            "-------------------------------------------\n" .
-            "Forma reciente: $awayForm\n" .
-            "$awayStats\n\n" .
+            // Formatear datos para el prompt
+            $homeForm = $this->formatTeamForm($statsData['home']['recent_matches'] ?? []);
+            $awayForm = $this->formatTeamForm($statsData['away']['recent_matches'] ?? []);
+            $h2hData = $this->formatHeadToHead($statsData['head_to_head'] ?? []);
             
-            "HISTORIAL DE ENFRENTAMIENTOS DIRECTOS:\n" .
-            "-------------------------------------------\n" .
-            "$h2hData\n\n" .
+            // Estadísticas adicionales
+            $homeStats = $this->formatTeamStats($statsData['home']['stats'] ?? null);
+            $awayStats = $this->formatTeamStats($statsData['away']['stats'] ?? null);
             
-            "INSTRUCCIONES PARA EL ANÁLISIS:\n" .
-            "-------------------------------------------\n" .
-            "1. Realiza un análisis detallado del partido basado en los datos proporcionados.\n" .
-            "2. Evalúa la forma actual de ambos equipos y sus probabilidades de victoria/empate.\n" .
-            "3. Analiza las tendencias ofensivas y defensivas de ambos equipos.\n" .
-            "4. Valora la importancia del factor cancha y los resultados previos entre ambos equipos.\n" .
-            "5. Proporciona un PRONÓSTICO FINAL con la probabilidad estimada (%) para cada resultado posible.\n\n" .
+            // Crear prompt mejorado
+            $prompt = "ANÁLISIS PROFESIONAL DE PARTIDO PARA APOSTADORES: $homeTeam vs. $awayTeam\n\n" .
+                "Fecha y hora: $matchDate\n" .
+                "Estadio: $venue\n\n";
             
-            "RECOMENDACIONES DE APUESTAS:\n" .
-            "-------------------------------------------\n" .
-            "Proporciona TRES recomendaciones de apuestas distintas clasificadas por nivel de riesgo:\n\n" .
-            
-            "1. APUESTA DE BAJO RIESGO: La más segura, aunque con menor cuota/retorno.\n" .
-            "   - Corresponde a un evento con alta probabilidad (>70%)\n" .
-            "   - Ejemplos: Doble oportunidad (1X/X2), Menos/Más de X goles, Hándicap conservador\n" .
-            "   - Ideal para apostantes conservadores o gestión segura del bankroll\n\n" .
-            
-            "2. APUESTA DE RIESGO MODERADO: Balance entre probabilidad y retorno.\n" .
-            "   - Corresponde a un evento con probabilidad media (40-70%)\n" .
-            "   - Ejemplos: 1X2, Ambos equipos marcan, Resultado exacto con margen\n" .
-            "   - Adecuada para apostantes con cierta tolerancia al riesgo\n\n" .
-            
-            "3. APUESTA DE ALTO RIESGO: Mayor cuota potencial pero menor probabilidad.\n" .
-            "   - Corresponde a un evento con baja probabilidad (<40%)\n" .
-            "   - Ejemplos: Resultado exacto, Goleador, Hándicap agresivo\n" .
-            "   - Para apostantes con alta tolerancia al riesgo y bankroll diversificado\n\n" .
-            
-            "Para cada recomendación, incluye:\n" .
-            "- Tipo de apuesta (1X2, más/menos goles, ambos marcan, hándicap, etc.)\n" .
-            "- Probabilidad estimada de éxito (%)\n" .
-            "- Justificación basada en datos estadísticos\n" .
-            "- Cuota estimada/recomendada\n\n" .
-            
-            "FORMATO DEL ANÁLISIS:\n" .
-            "-------------------------------------------\n" .
-            "- Comienza con un resumen ejecutivo del partido (2-3 frases).\n" .
-            "- Divide el análisis en secciones claras (Forma, Ofensiva, Defensiva, H2H, etc.).\n" .
-            "- Resalta los datos estadísticos más relevantes que influyen en tu predicción.\n" .
-            "- Si hay ausencia de datos en alguna categoría, indícalo claramente pero haz una predicción basada en lo disponible.\n" .
-            "- Finaliza con las tres recomendaciones de apuesta clasificadas por riesgo.\n" .
-            "- Usa formato claro con encabezados, listas y énfasis donde sea apropiado.";
+            // Añadir información sobre disponibilidad de datos
+            if (!$homeHasStats || !$awayHasStats) {
+                $prompt .= "NOTA: ⚠️ Hay datos estadísticos limitados disponibles para este análisis. " . 
+                    "La predicción se basará en los datos disponibles y conocimiento general sobre los equipos. " .
+                    "Los resultados deben considerarse con precaución.\n\n";
+            }
+                
+            $prompt .= "DATOS ESTADÍSTICOS DEL EQUIPO LOCAL: $homeTeam\n" .
+                "-------------------------------------------\n" .
+                "Forma reciente: $homeForm\n" .
+                "$homeStats\n\n" .
+                
+                "DATOS ESTADÍSTICOS DEL EQUIPO VISITANTE: $awayTeam\n" .
+                "-------------------------------------------\n" .
+                "Forma reciente: $awayForm\n" .
+                "$awayStats\n\n" .
+                
+                "HISTORIAL DE ENFRENTAMIENTOS DIRECTOS:\n" .
+                "-------------------------------------------\n" .
+                "$h2hData\n\n" .
+                
+                "INSTRUCCIONES PARA EL ANÁLISIS:\n" .
+                "-------------------------------------------\n" .
+                "1. Realiza un análisis detallado del partido basado en los datos proporcionados.\n" .
+                "2. Evalúa la forma actual de ambos equipos y sus probabilidades de victoria/empate.\n" .
+                "3. Analiza las tendencias ofensivas y defensivas de ambos equipos.\n" .
+                "4. Valora la importancia del factor cancha y los resultados previos entre ambos equipos.\n" .
+                "5. Considera factores como el cansancio por calendario, motivación y contexto del partido.\n" .
+                "6. Proporciona un PRONÓSTICO FINAL con la probabilidad estimada (%) para cada resultado posible (1-X-2).\n" .
+                "7. Analiza el mercado de goles totales (Over/Under) con sus probabilidades.\n\n" .
+                
+                "MERCADOS DE APUESTAS A CONSIDERAR:\n" .
+                "-------------------------------------------\n" .
+                "- Resultado final (1X2)\n" .
+                "- Doble oportunidad (1X, 12, X2)\n" .
+                "- Hándicap asiático\n" .
+                "- Ambos equipos marcan (BTTS)\n" .
+                "- Más/Menos goles (Líneas: 0.5, 1.5, 2.5, 3.5, 4.5)\n" .
+                "- Marcador exacto\n" .
+                "- Primer goleador\n" .
+                "- Número de córners\n" .
+                "- Número de tarjetas\n" .
+                "- Ganador al descanso / final de partido\n\n" .
+                
+                "RECOMENDACIONES DE APUESTAS:\n" .
+                "-------------------------------------------\n" .
+                "Proporciona CINCO recomendaciones de apuestas distintas clasificadas por nivel de riesgo y valor esperado:\n\n" .
+                
+                "1. APUESTA DE BAJO RIESGO (SEGURA): La más segura, aunque con menor cuota/retorno.\n" .
+                "   - Corresponde a un evento con alta probabilidad (>75%)\n" .
+                "   - Ejemplos: Doble oportunidad (1X/X2), Menos/Más de X goles, Hándicap conservador\n" .
+                "   - Ideal para apostantes conservadores o gestión segura del bankroll\n\n" .
+                
+                "2. APUESTA DE RIESGO MODERADO (VALOR): Balance óptimo entre probabilidad y retorno.\n" .
+                "   - Corresponde a un evento con probabilidad media (50-75%)\n" .
+                "   - Ejemplos: 1X2, Ambos equipos marcan, Resultado exacto con margen\n" .
+                "   - Adecuada para apostantes con cierta tolerancia al riesgo\n\n" .
+                
+                "3. APUESTA DE RIESGO MEDIO (EQUILIBRADA): Buena relación riesgo/beneficio.\n" .
+                "   - Corresponde a un evento con probabilidad media (40-60%)\n" .
+                "   - Ejemplos: Victoria de un equipo específico, número exacto de goles, hándicap específico\n" .
+                "   - Para apostantes con experiencia en gestión de bankroll\n\n" .
+                
+                "4. APUESTA DE ALTO RIESGO (ESPECULATIVA): Mayor cuota potencial pero menor probabilidad.\n" .
+                "   - Corresponde a un evento con baja probabilidad (20-40%)\n" .
+                "   - Ejemplos: Resultado exacto, goleador específico, hándicap agresivo\n" .
+                "   - Para apostantes con alta tolerancia al riesgo y bankroll diversificado\n\n" .
+                
+                "5. APUESTA VALOR EXTREMO (LONGSHOT): Altísimo retorno potencial pero muy baja probabilidad.\n" .
+                "   - Corresponde a un evento con muy baja probabilidad (<20%)\n" .
+                "   - Ejemplos: Marcador exacto inusual, combinaciones específicas, sucesos raros\n" .
+                "   - Solo para pequeñas cantidades y apostantes experimentados\n\n" .
+                
+                "Para cada recomendación, incluye:\n" .
+                "- Tipo de apuesta (1X2, más/menos goles, ambos marcan, hándicap, etc.)\n" .
+                "- Probabilidad estimada de éxito (%)\n" .
+                "- Justificación basada en datos estadísticos concretos\n" .
+                "- Cuota justa estimada (100/probabilidad)\n" .
+                "- Cuota mínima recomendada para considerar valor\n" .
+                "- Nivel de confianza (Muy alta, Alta, Media, Baja, Muy baja)\n\n" .
+                
+                "FORMATO DEL ANÁLISIS:\n" .
+                "-------------------------------------------\n" .
+                "- Comienza con un RESUMEN EJECUTIVO del partido (3-4 frases).\n" .
+                "- Sigue con secciones para ANÁLISIS POR EQUIPO (Local y Visitante).\n" .
+                "- Incluye sección de FACTORES CLAVE que influirán en el resultado.\n" .
+                "- Añade sección de ANÁLISIS DE MERCADOS (1X2, Goles, BTTS, etc.).\n" .
+                "- Termina con las CINCO RECOMENDACIONES DE APUESTAS ordenadas por riesgo.\n" .
+                "- Usa formato claro con encabezados, listas, porcentajes y énfasis.\n" .
+                "- Los datos estadísticos específicos deben justificar cada recomendación.\n" .
+                "- Si hay ausencia de datos en alguna categoría, indícalo claramente pero haz una predicción basada en lo disponible.\n" .
+                "- Finaliza con un RESUMEN DE PRONÓSTICOS con los cinco mercados principales (1X2, BTTS, Over/Under 2.5, etc.)";
 
-        $apiKey = env('GEMINI_API_KEY');
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={$apiKey}";
+            // Obtener la clave API de Gemini del archivo .env
+            // usando file_get_contents para leer el archivo directamente
+            $envFile = file_get_contents(base_path('.env'));
+            preg_match('/GEMINI_API_KEY=([^\n\r]+)/', $envFile, $matches);
+            $apiKey = $matches[1] ?? null;
+            
+            // Verificar si tenemos la clave API
+            if (empty($apiKey)) {
+                Log::error('No se encontró la clave API de Gemini en el archivo .env');
+                return 'ERROR: No se encontró la clave API de Gemini. Por favor, configure GEMINI_API_KEY en el archivo .env.';
+            }
+            
+            Log::debug('Enviando solicitud a la API de Gemini');
+            
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={$apiKey}";
 
-        $response = Http::post($url, [
-            "contents" => [
-                [
-                    "parts" => [
-                        ["text" => $prompt]
+            // Realizar petición a la API de Gemini
+            $response = Http::timeout(60)->post($url, [
+                "contents" => [
+                    [
+                        "parts" => [
+                            ["text" => $prompt]
+                        ]
                     ]
                 ]
-            ]
-        ]);
+            ]);
 
-        $aiResponse = $response->json();
-        
-        // Verificar si la respuesta contiene texto
-        $analysisText = $aiResponse['candidates'][0]['content']['parts'][0]['text'] ?? 'No se pudo generar análisis';
-        
-        return $analysisText;
+            // Verificar si la solicitud fue exitosa
+            if (!$response->successful()) {
+                Log::error('Error al comunicarse con la API de Gemini', [
+                    'status' => $response->status(),
+                    'body' => $response->body()
+                ]);
+                return 'Error al comunicarse con la API de Gemini: ' . $response->status() . ' - ' . $response->body();
+            }
+
+            // Decodificar la respuesta
+            $aiResponse = $response->json();
+            
+            // Verificar la estructura de la respuesta
+            if (!isset($aiResponse['candidates']) || 
+                !isset($aiResponse['candidates'][0]['content']) || 
+                !isset($aiResponse['candidates'][0]['content']['parts']) || 
+                !isset($aiResponse['candidates'][0]['content']['parts'][0]['text'])) {
+                
+                Log::error('Respuesta de Gemini con formato inesperado', [
+                    'response' => $aiResponse
+                ]);
+                
+                return 'Error: La respuesta de la API de Gemini tiene un formato inesperado. Respuesta: ' . json_encode($aiResponse);
+            }
+            
+            // Extraer el texto del análisis
+            $analysisText = $aiResponse['candidates'][0]['content']['parts'][0]['text'];
+            
+            // Verificar si tenemos texto
+            if (empty($analysisText)) {
+                Log::warning('Gemini devolvió una respuesta vacía');
+                return 'La API de Gemini devolvió una respuesta vacía. Por favor, intente nuevamente.';
+            }
+            
+            Log::debug('Análisis generado correctamente', [
+                'length' => strlen($analysisText)
+            ]);
+            
+            return $analysisText;
+            
+        } catch (\Exception $e) {
+            Log::error('Error al generar análisis con Gemini', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return 'Error al generar el análisis: ' . $e->getMessage();
+        }
     }
     
     /**

@@ -5,6 +5,8 @@ namespace App\Console\Commands;
 use App\Models\Country;
 use App\Models\FootballMatch;
 use App\Models\League;
+use App\Models\Player;
+use App\Models\Coach;
 use App\Models\Season;
 use App\Models\Sport;
 use App\Models\Team;
@@ -235,16 +237,140 @@ class FetchFootballMatches extends Command
         $team = Team::where('api_team_id', $apiTeamId)->first();
         
         if (!$team) {
-            $team = Team::create([
-                'name' => $teamData['name'],
-                'country' => null, // We would need more data to get this
-                'logo' => $teamData['logo'] ?? null,
+            // Obtener información detallada del equipo desde la API
+            $detailedTeamData = $this->footballApiService->getTeamDetails($apiTeamId);
+            
+            // Si no se pudo obtener información detallada, usar los datos básicos
+            if (!$detailedTeamData) {
+                $this->warn("No se pudo obtener información detallada para el equipo ID: {$apiTeamId}");
+                $detailedTeamData = $teamData;
+            }
+            
+            // Extraer datos del equipo
+            $teamInfo = [
+                'name' => $detailedTeamData['name'],
+                'short_name' => $detailedTeamData['shortName'] ?? null,
+                'tla' => $detailedTeamData['tla'] ?? null,
+                'country' => $detailedTeamData['area']['name'] ?? null,
+                'logo' => $detailedTeamData['crest'] ?? $teamData['logo'] ?? null,
                 'api_team_id' => $apiTeamId,
-                'metadata' => json_encode($teamData),
-            ]);
+                'founded' => $detailedTeamData['founded'] ?? null,
+                'venue_name' => $detailedTeamData['venue'] ?? null,
+                'city' => null, // No proporcionado directamente por la API
+                'address' => $detailedTeamData['address'] ?? null,
+                'website' => $detailedTeamData['website'] ?? null,
+                'club_colors' => $detailedTeamData['clubColors'] ?? null,
+                'metadata' => json_encode($detailedTeamData),
+            ];
+
+            // Buscar liga correspondiente si está en las competiciones
+            if (isset($detailedTeamData['runningCompetitions']) && !empty($detailedTeamData['runningCompetitions'])) {
+                foreach ($detailedTeamData['runningCompetitions'] as $competition) {
+                    $league = League::where('api_league_id', $competition['id'])->first();
+                    if ($league) {
+                        $teamInfo['league_id'] = $league->id;
+                        break;
+                    }
+                }
+            }
+            
+            $team = Team::create($teamInfo);
+            
+            // Si hay información sobre el plantel, la guardamos en una tabla relacionada
+            if (isset($detailedTeamData['squad']) && !empty($detailedTeamData['squad'])) {
+                $this->storeTeamSquad($team, $detailedTeamData['squad']);
+            }
+            
+            // Si hay información sobre el entrenador, la guardamos en una tabla relacionada
+            if (isset($detailedTeamData['coach']) && !empty($detailedTeamData['coach'])) {
+                $this->storeTeamCoach($team, $detailedTeamData['coach']);
+            }
         }
         
         return $team;
+    }
+    
+    /**
+     * Store team squad information
+     */
+    protected function storeTeamSquad(Team $team, array $squad)
+    {
+        $this->info("Guardando plantilla para el equipo {$team->name} ({$team->id})");
+        
+        foreach ($squad as $playerData) {
+            try {
+                $player = [
+                    'team_id' => $team->id,
+                    'api_player_id' => $playerData['id'] ?? null,
+                    'name' => $playerData['name'] ?? '',
+                    'first_name' => $playerData['firstName'] ?? null,
+                    'last_name' => $playerData['lastName'] ?? null,
+                    'position' => $playerData['position'] ?? null,
+                    'date_of_birth' => isset($playerData['dateOfBirth']) ? date('Y-m-d', strtotime($playerData['dateOfBirth'])) : null,
+                    'nationality' => $playerData['nationality'] ?? null,
+                    'shirt_number' => $playerData['shirtNumber'] ?? null,
+                    'market_value' => $playerData['marketValue'] ?? null,
+                    'contract_start' => isset($playerData['contract']['start']) ? date('Y-m-d', strtotime($playerData['contract']['start'])) : null,
+                    'contract_until' => isset($playerData['contract']['until']) ? date('Y-m-d', strtotime($playerData['contract']['until'])) : null,
+                    'metadata' => json_encode($playerData),
+                ];
+
+                \App\Models\Player::updateOrCreate(
+                    [
+                        'team_id' => $team->id,
+                        'api_player_id' => $playerData['id'] ?? null
+                    ],
+                    $player
+                );
+            } catch (\Exception $e) {
+                $this->error("Error al guardar jugador: " . $e->getMessage());
+                Log::error('Error guardando jugador', [
+                    'player_name' => $playerData['name'] ?? 'Unknown',
+                    'team_id' => $team->id,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
+            }
+        }
+    }
+    
+    /**
+     * Store team coach information
+     */
+    protected function storeTeamCoach(Team $team, array $coachData)
+    {
+        $this->info("Guardando entrenador para el equipo {$team->name} ({$team->id})");
+        
+        try {
+            $coach = [
+                'team_id' => $team->id,
+                'api_coach_id' => $coachData['id'] ?? null,
+                'name' => $coachData['name'] ?? '',
+                'first_name' => $coachData['firstName'] ?? null,
+                'last_name' => $coachData['lastName'] ?? null,
+                'date_of_birth' => isset($coachData['dateOfBirth']) ? date('Y-m-d', strtotime($coachData['dateOfBirth'])) : null,
+                'nationality' => $coachData['nationality'] ?? null,
+                'contract_start' => isset($coachData['contract']['start']) ? date('Y-m-d', strtotime($coachData['contract']['start'])) : null,
+                'contract_until' => isset($coachData['contract']['until']) ? date('Y-m-d', strtotime($coachData['contract']['until'])) : null,
+                'metadata' => json_encode($coachData),
+            ];
+            
+            \App\Models\Coach::updateOrCreate(
+                [
+                    'team_id' => $team->id,
+                    'api_coach_id' => $coachData['id'] ?? null
+                ],
+                $coach
+            );
+        } catch (\Exception $e) {
+            $this->error("Error al guardar entrenador: " . $e->getMessage());
+            Log::error('Error guardando entrenador', [
+                'coach_name' => $coachData['name'] ?? 'Unknown',
+                'team_id' => $team->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+        }
     }
 
     /**

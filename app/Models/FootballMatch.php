@@ -73,6 +73,14 @@ class FootballMatch extends Model
     }
 
     /**
+     * Get the season that this match belongs to.
+     */
+    public function season(): BelongsTo
+    {
+        return $this->belongsTo(Season::class);
+    }
+
+    /**
      * Scope a query to only include matches for today and tomorrow
      */
     public function scopeUpcoming($query)

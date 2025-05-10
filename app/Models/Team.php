@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Models\FootballMatch;
 use App\Models\League;
+use App\Models\Player;
+use App\Models\Coach;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,6 +26,12 @@ class Team extends Model
         'metadata',
         'founded',
         'venue_name',
+        'short_name',
+        'tla',
+        'address',
+        'website',
+        'club_colors',
+        'market_value',
     ];
 
     protected $casts = [
@@ -76,5 +84,21 @@ class Team extends Model
     public function statsBySeason($season)
     {
         return $this->hasOne(TeamStats::class)->where('season', $season);
+    }
+
+    /**
+     * Get all players in this team
+     */
+    public function players()
+    {
+        return $this->hasMany(Player::class);
+    }
+
+    /**
+     * Get the coach of this team
+     */
+    public function coach()
+    {
+        return $this->hasOne(Coach::class);
     }
 }

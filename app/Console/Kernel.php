@@ -14,6 +14,7 @@ class Kernel extends ConsoleKernel
      */
     protected $commands = [
         Commands\FetchFootballMatches::class,
+        \App\Console\Commands\SyncTeamStats::class,
     ];
 
     /**
@@ -28,6 +29,33 @@ class Kernel extends ConsoleKernel
         $schedule->command('football:fetch-matches')
                  ->dailyAt('00:05')
                  ->appendOutputTo(storage_path('logs/football-matches-fetch.log'));
+
+        // Sincronizar estadísticas de equipo por competición una vez al día
+        // Primeras 5 ligas de fútbol principales
+        $schedule->command('teams:sync-stats --competition="Premier League" --delay=60')
+            ->dailyAt('01:00')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/teams-sync-premier.log'));
+            
+        $schedule->command('teams:sync-stats --competition="La Liga" --delay=60')
+            ->dailyAt('02:00')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/teams-sync-laliga.log'));
+            
+        $schedule->command('teams:sync-stats --competition="Serie A" --delay=60')
+            ->dailyAt('03:00')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/teams-sync-seriea.log'));
+            
+        $schedule->command('teams:sync-stats --competition="Bundesliga" --delay=60')
+            ->dailyAt('04:00')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/teams-sync-bundesliga.log'));
+            
+        $schedule->command('teams:sync-stats --competition="Ligue 1" --delay=60')
+            ->dailyAt('05:00')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/teams-sync-ligue1.log'));
     }
 
     /**
