@@ -12,7 +12,7 @@ class FetchTeamsData extends Command
      *
      * @var string
      */
-    protected $signature = 'football:fetch-teams {league_id} {season}';
+    protected $signature = 'football:fetch-teams {--league_id=} {--season=}';
 
     /**
      * The console command description.
@@ -26,8 +26,13 @@ class FetchTeamsData extends Command
      */
     public function handle(FootballDataService $footballDataService)
     {
-        $leagueId = $this->argument('league_id');
-        $season = $this->argument('season');
+        $leagueId = $this->option('league_id');
+        $season = $this->option('season');
+        
+        if (!$leagueId || !$season) {
+            $this->error('Los parámetros league_id y season son obligatorios');
+            return Command::FAILURE;
+        }
         
         $this->info("Obteniendo equipos de la liga ID: {$leagueId} para la temporada {$season}...");
         

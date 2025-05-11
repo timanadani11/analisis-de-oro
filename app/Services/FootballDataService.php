@@ -89,6 +89,126 @@ class FootballDataService
     }
 
     /**
+     * Obtiene y guarda los equipos de una liga específica
+     * 
+     * @param string $leagueId El ID de la liga en la API
+     * @param string $season La temporada (por ejemplo, 2024)
+     * @return array Resultado de la operación
+     */
+    public function fetchAndSaveTeams($leagueId, $season)
+    {
+        try {
+            Log::info('Obteniendo equipos', [
+                'league_id' => $leagueId,
+                'season' => $season
+            ]);
+
+            // Buscar liga en la base de datos o crear una nueva
+            $league = \App\Models\League::firstOrCreate(
+                ['api_league_id' => $leagueId],
+                ['name' => "Liga ID {$leagueId}", 'active' => true]
+            );
+
+            // Hacer la petición a la API para obtener los equipos de la liga
+            $response = $this->makeRequest("competitions/{$leagueId}/teams", [
+                'season' => $season
+            ]);
+
+            if (!$response || !isset($response['teams'])) {
+                return [
+                    'success' => false,
+                    'message' => 'No se pudieron obtener los equipos desde la API',
+                    'total' => 0,
+                    'saved' => 0,
+                    'errors' => ['La respuesta de la API no contiene equipos']
+                ];
+            }
+
+            $teamsData = $response['teams'];
+            $total = count($teamsData);
+            $saved = 0;
+            $errors = [];
+
+            foreach ($teamsData as $teamData) {
+                try {
+                    // Buscar equipo existente o crear nuevo
+                    $team = \App\Models\Team::updateOrCreate(
+                        ['api_team_id' => $teamData['id']],
+                        [
+                            'name' => $teamData['name'],
+                            'logo' => $teamData['crest'] ?? null,
+                            'league_id' => $league->id,
+                            'short_name' => $teamData['shortName'] ?? null,
+                            'tla' => $teamData['tla'] ?? null,
+                            'founded' => $teamData['founded'] ?? null,
+                            'venue_name' => $teamData['venue'] ?? null,
+                            'address' => $teamData['address'] ?? null,
+                            'website' => $teamData['website'] ?? null,
+                            'club_colors' => $teamData['clubColors'] ?? null,
+                            'country' => $teamData['area']['name'] ?? null,
+                            'city' => null, // No disponible en esta API
+                            'stadium' => $teamData['venue'] ?? null,
+                            'metadata' => [
+                                'raw_api_data' => $teamData,
+                                'last_updated' => now()->toDateTimeString(),
+                                'season' => $season
+                            ]
+                        ]
+                    );
+
+                    $saved++;
+                } catch (\Exception $e) {
+                    Log::error('Error al guardar equipo', [
+                        'team_id' => $teamData['id'] ?? 'unknown',
+                        'team_name' => $teamData['name'] ?? 'unknown',
+                        'error' => $e->getMessage()
+                    ]);
+
+                    $errors[] = "Error al guardar el equipo {$teamData['name']}: " . $e->getMessage();
+                }
+            }
+
+            // Actualizar la información de la liga si es la primera vez
+            if ($league->name === "Liga ID {$leagueId}" && isset($response['competition'])) {
+                $competitionData = $response['competition'];
+                $league->update([
+                    'name' => $competitionData['name'] ?? $league->name,
+                    'logo' => $competitionData['emblem'] ?? null,
+                    'country' => $competitionData['area']['name'] ?? null,
+                    'type' => $competitionData['type'] ?? 'LEAGUE',
+                    'metadata' => [
+                        'raw_api_data' => $competitionData,
+                        'last_updated' => now()->toDateTimeString()
+                    ]
+                ]);
+            }
+
+            return [
+                'success' => true,
+                'message' => "Se han procesado {$total} equipos de la liga {$league->name}",
+                'total' => $total,
+                'saved' => $saved,
+                'errors' => $errors
+            ];
+        } catch (\Exception $e) {
+            Log::error('Error general al obtener y guardar equipos', [
+                'league_id' => $leagueId,
+                'season' => $season,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Error general: ' . $e->getMessage(),
+                'total' => 0,
+                'saved' => 0,
+                'errors' => [$e->getMessage()]
+            ];
+        }
+    }
+
+    /**
      * Obtiene los partidos del día actual
      * 
      * @return array Datos formateados de los partidos del día
